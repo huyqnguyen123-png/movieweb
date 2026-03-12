@@ -7,22 +7,18 @@ import { PrismaPg } from '@prisma/adapter-pg';
 
 dotenv.config();
 
-const { Pool } = pg;
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
-const TMDB_TOKEN = process.env.TMDB_TOKEN;
-
-async function seedMovies() {
+async function seed() {
   try {
+    console.log("Fetching movies from TMDb...");
     const response = await axios.get('https://api.themoviedb.org/3/movie/popular?language=en-US&page=1', {
-      headers: { Authorization: TMDB_TOKEN }
+      headers: { Authorization: process.env.TMDB_TOKEN }
     });
 
-    const movies = response.data.results;
-
-    for (const item of movies) {
+    for (const item of response.data.results) {
       await prisma.movie.upsert({
         where: { tmdbId: String(item.id) },
         update: {},
@@ -38,12 +34,12 @@ async function seedMovies() {
         }
       });
     }
-    console.log("Database seeded successfully!");
+    console.log("✅ Seed completed successfully!");
   } catch (error) {
-    console.error("Seeding error:", error.message);
+    console.error("❌ Seed error:", error.message);
   } finally {
     await prisma.$disconnect();
   }
 }
 
-seedMovies();
+seed();
