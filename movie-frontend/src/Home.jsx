@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Swiper, SwiperSlide } from 'swiper/react';
 import { EffectCoverflow, Pagination, Navigation, Autoplay } from 'swiper/modules';
@@ -9,9 +9,124 @@ import 'swiper/css/effect-coverflow';
 import 'swiper/css/pagination';
 import 'swiper/css/navigation';
 
+// Reusable component that displays movies in a horizontally scrollable row
+const MovieCategory = ({ title, genreId }) => {
+  const [movies, setMovies] = useState([]);
+  const rowRef = useRef(null);
+
+  // Fetch data specific to this genre and set up auto-polling for real-time updates
+  useEffect(() => {
+    const fetchPopularMovies = () => {
+      fetch(`http://localhost:5000/api/movies/genre/${genreId}`)
+        .then(res => res.json())
+        .then(data => setMovies(data))
+        .catch(err => console.error("Error fetching auto-update movies:", err));
+    };
+
+    fetchPopularMovies();
+    const pollingInterval = setInterval(fetchPopularMovies, 300000);
+    return () => clearInterval(pollingInterval);
+  }, [genreId]);
+
+  useEffect(() => {
+    const rowElement = rowRef.current;
+    if (!rowElement) return;
+
+    let targetScroll = rowElement.scrollLeft;
+    let isAnimating = false;
+
+    const handleWheel = (e) => {
+      e.preventDefault();
+      targetScroll += e.deltaY * 2.5; 
+      const maxScroll = rowElement.scrollWidth - rowElement.clientWidth;
+      targetScroll = Math.max(0, Math.min(targetScroll, maxScroll));
+
+      if (!isAnimating) {
+        isAnimating = true;
+        
+        const animateScroll = () => {
+          const step = (targetScroll - rowElement.scrollLeft) * 0.08;
+          rowElement.scrollLeft += step;
+
+          if (Math.abs(targetScroll - rowElement.scrollLeft) > 1) {
+            requestAnimationFrame(animateScroll);
+          } else {
+            rowElement.scrollLeft = targetScroll;
+            isAnimating = false;
+          }
+        };
+        
+        requestAnimationFrame(animateScroll);
+      }
+    };
+
+    const handleScroll = () => {
+      if (!isAnimating) {
+        targetScroll = rowElement.scrollLeft;
+      }
+    };
+
+    rowElement.addEventListener('wheel', handleWheel, { passive: false });
+    rowElement.addEventListener('scroll', handleScroll, { passive: true });
+
+    return () => {
+      rowElement.removeEventListener('wheel', handleWheel);
+      rowElement.removeEventListener('scroll', handleScroll);
+    };
+  }, [movies]); 
+
+  if (movies.length === 0) return null;
+
+  return (
+    <section className="px-8 pb-10 max-w-7xl mx-auto relative">
+      <h2 className="text-2xl font-bold mb-6 text-white border-l-4 border-gray-500 pl-3 uppercase tracking-wide">
+        {title}
+      </h2>
+      
+      <div 
+        ref={rowRef}
+        className="flex gap-5 overflow-x-auto scrollbar-hide pb-4"
+      >
+        {movies.map(movie => (
+          <Link 
+            to={`/watch/${movie.id}`} 
+            key={`genre-${genreId}-${movie.id}`} 
+            className="group/card relative overflow-hidden rounded-xl shadow-xl hover:-translate-y-2 transition-transform duration-300 border border-gray-800 w-[160px] sm:w-[200px] shrink-0"
+          >
+            <img 
+              src={movie.posterPath} 
+              alt={movie.title} 
+              className="w-full h-[240px] sm:h-[300px] object-cover pointer-events-none" 
+            />
+            
+            <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/40 to-transparent flex flex-col justify-end p-4 opacity-0 group-hover/card:opacity-100 transition-all duration-300">
+
+              <div className="transform translate-y-4 group-hover/card:translate-y-0 transition-transform duration-300">
+                <h3 className="font-bold text-sm md:text-base text-white line-clamp-2 drop-shadow-md leading-tight">
+                  {movie.title}
+                </h3>
+                
+                <div className="flex items-center text-yellow-400 text-xs md:text-sm font-bold mt-1.5 mb-3">
+                  <Star className="w-3.5 h-3.5 fill-current mr-1" /> {movie.voteAverage?.toFixed(1)}
+                </div>
+
+                <div className="bg-red-600 text-white text-sm font-bold rounded-full py-1.5 px-4 flex items-center justify-center w-full transition-colors duration-200 hover:bg-red-500 shadow-lg">
+                  <Play className="w-4 h-4 fill-current mr-1.5" /> Play
+                </div>
+              </div>
+
+            </div>
+          </Link>
+        ))}
+      </div>
+    </section>
+  );
+};
+
 export default function Home() {
   const [movies, setMovies] = useState([]);
 
+  // Fetch initial generic movies for the top slider
   useEffect(() => {
     fetch('http://localhost:5000/api/movies')
       .then(res => res.json())
@@ -25,10 +140,21 @@ export default function Home() {
     .sort((a, b) => new Date(b.releaseDate) - new Date(a.releaseDate))
     .slice(0, 10);
   
-  const regularMovies = movies;
+  // Array defining custom categories mapped to TMDb API genre IDs
+  const categories = [
+    { title: "Action", genreId: 28 },
+    { title: "Romance", genreId: 10749 },
+    { title: "Horror", genreId: 27 },
+    { title: "Mystery", genreId: 9648 },
+    { title: "Sci-Fi", genreId: 878 },
+    { title: "TV Series", genreId: 10770 },
+    { title: "Animation", genreId: 16 },
+    { title: "Psychological", genreId: 18 },
+    { title: "Comedy", genreId: 35 }
+  ];
 
   return (
-    <div className="space-y-12 overflow-hidden">
+    <div className="space-y-12 overflow-hidden bg-black">
       <style>{`
         .swiper-pagination-bullet {
           background-color: rgba(255,255,255,0.5) !important;
@@ -42,6 +168,17 @@ export default function Home() {
           opacity: 0.2;
           cursor: not-allowed;
           transform: none !important;
+        }
+
+        /* Hide scrollbar for Chrome, Safari and Opera */
+        .scrollbar-hide::-webkit-scrollbar {
+          display: none;
+        }
+        
+        /* Hide scrollbar for IE, Edge and Firefox */
+        .scrollbar-hide {
+          -ms-overflow-style: none;  /* IE and Edge */
+          scrollbar-width: none;  /* Firefox */
         }
       `}</style>
 
@@ -74,7 +211,7 @@ export default function Home() {
             }}
             coverflowEffect={{
               rotate: 0,
-              stretch: 50,       
+              stretch: 50,      
               depth: 200,        
               modifier: 1,
               slideShadows: false,
@@ -132,25 +269,16 @@ export default function Home() {
         </div>
       </section>
 
-      {/*SECTION 2: EXPLORE MORE*/}
-      <section className="px-8 pb-10 max-w-7xl mx-auto">
-        <h2 className="text-2xl font-bold mb-6 text-white border-l-4 border-gray-500 pl-3 uppercase tracking-wide">
-          Explore More
-        </h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
-          {regularMovies.map(movie => (
-            <Link to={`/watch/${movie.id}`} key={`regular-${movie.id}`} className="group relative overflow-hidden rounded-xl shadow-xl hover:-translate-y-2 transition-transform duration-300 border border-gray-800">
-              <img src={movie.posterPath} alt={movie.title} className="w-full aspect-[2/3] object-cover" />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/30 to-transparent flex flex-col justify-end p-5 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                <h3 className="font-bold text-sm md:text-base text-white truncate drop-shadow-md">{movie.title}</h3>
-                <div className="flex items-center mt-2 text-yellow-400 text-xs md:text-sm font-bold">
-                  <Star className="w-3.5 h-3.5 fill-current mr-1" /> {movie.voteAverage?.toFixed(1)}
-                </div>
-              </div>
-            </Link>
-          ))}
-        </div>
-      </section>
+      {/*SECTION 2: CATEGORY ROWS*/}
+      <div className="pb-10 space-y-2">
+        {categories.map((category) => (
+          <MovieCategory 
+            key={category.genreId} 
+            title={category.title} 
+            genreId={category.genreId} 
+          />
+        ))}
+      </div>
     </div>
   );
 }

@@ -2,12 +2,21 @@ import { useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, PlayCircle, Star, Calendar, Clapperboard, Users, Loader2, X, User } from 'lucide-react';
 
+const formatDate = (dateString) => {
+  if (!dateString) return "Unknown";
+  const parts = dateString.split('-');
+  if (parts.length === 3) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  return dateString;
+};
+
 export default function Player() {
   const { id } = useParams();
   const [movie, setMovie] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   
-  // State to manage which media is currently playing ('movie', 'trailer', or null)
+  // State to manage which media is currently playing
   const [activeMedia, setActiveMedia] = useState(null);
   
   // States for Actor/Director
@@ -96,27 +105,19 @@ export default function Player() {
           />
           
           <div className="flex flex-col gap-3">
-            {/* Watch Movie Button - Render only if the movie has a valid videoUrl in the database */}
-            {movie.videoUrl && (
-              <button 
-                onClick={() => handleMediaSelect('movie')}
-                className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 px-6 rounded-xl flex items-center justify-center transition-all hover:scale-[1.02] active:scale-95 shadow-[0_0_20px_rgba(220,38,38,0.4)]"
-              >
-                <PlayCircle className="w-6 h-6 mr-2" />
-                Watch Movie
-              </button>
-            )}
+            <button 
+              onClick={() => handleMediaSelect('movie')}
+              className="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all hover:scale-[1.02] active:scale-95 shadow-[0_0_20px_rgba(220,38,38,0.4)]"
+            >
+              <PlayCircle className="w-5 h-5" />
+              Watch Movie
+            </button>
 
-            {/* Watch Trailer Button - Styling adjusts automatically based on movie button existence */}
             <button 
               onClick={() => handleMediaSelect('trailer')}
-              className={`w-full font-bold py-4 px-6 rounded-xl flex items-center justify-center transition-all hover:scale-[1.02] active:scale-95 ${
-                movie.videoUrl 
-                  ? 'bg-gray-800 hover:bg-gray-700 text-white border border-gray-700' 
-                  : 'bg-red-600 hover:bg-red-700 text-white shadow-[0_0_20px_rgba(220,38,38,0.4)]'
-              }`}
+              className="w-full bg-gray-800 hover:bg-gray-700 text-gray-200 font-bold py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all hover:scale-[1.02] active:scale-95 border border-gray-700 shadow-md"
             >
-              <Clapperboard className="w-6 h-6 mr-2" />
+              <Clapperboard className="w-5 h-5" />
               Watch Trailer
             </button>
           </div>
@@ -131,7 +132,7 @@ export default function Player() {
                 <Star className="w-4 h-4 mr-1 fill-current" /> {movie.voteAverage?.toFixed(1)} Rating
               </span>
               <span className="flex items-center">
-                <Calendar className="w-4 h-4 mr-2" /> Release: {movie.releaseDate}
+                <Calendar className="w-4 h-4 mr-2" /> Release: {formatDate(movie.releaseDate)}
               </span>
             </div>
           </div>
@@ -193,7 +194,7 @@ export default function Player() {
             </div>
           </div>
 
-          {/* Dynamic Media Player (Trailer or External Movie Server) */}
+          {/* Dynamic Media Player */}
           {activeMedia && (
             <div ref={videoRef} className="pt-4 mt-8 border-t border-gray-800 animate-[fadeIn_0.5s_ease-in-out]">
               <div className="flex items-center justify-between mb-6">
@@ -288,7 +289,8 @@ export default function Player() {
                         </span>
                         {personDetails.birthday && (
                           <span className="bg-gray-800 text-gray-300 px-3 py-1 rounded-md text-sm font-medium border border-gray-700">
-                            Born: {personDetails.birthday}
+                            {/* Applied formatDate helper to the person's birthday */}
+                            Born: {formatDate(personDetails.birthday)}
                           </span>
                         )}
                       </div>

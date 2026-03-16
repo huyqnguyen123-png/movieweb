@@ -161,5 +161,31 @@ app.get('/api/person/:id', async (req, res) => {
   }
 });
 
+// API: Fetch movies by specific TMDb Genre ID for the homepage categories
+app.get('/api/movies/genre/:genreId', async (req, res) => {
+  try {
+    const { genreId } = req.params;
+    
+    // Discover movies associated with the provided genre ID, sorted by popularity
+    const response = await axios.get(
+      `https://api.themoviedb.org/3/discover/movie?with_genres=${genreId}&language=en-US&sort_by=popularity.desc&page=1`,
+      { headers: { Authorization: process.env.TMDB_TOKEN } }
+    );
+
+    // Map and format the top 10 results to match the frontend expectations
+    const movies = response.data.results.slice(0, 20).map(m => ({
+      id: m.id.toString(),
+      title: m.title,
+      posterPath: m.poster_path ? `https://image.tmdb.org/t/p/w500${m.poster_path}` : null,
+      voteAverage: m.vote_average
+    }));
+
+    res.json(movies);
+  } catch (error) {
+    console.error("Error fetching genre:", error.message);
+    res.status(500).json({ error: 'Failed to fetch movies by genre' });
+  }
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Server on http://localhost:${PORT}`));
