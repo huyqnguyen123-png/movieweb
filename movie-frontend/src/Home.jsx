@@ -45,7 +45,7 @@ export default function Home() {
         }
       `}</style>
 
-      {/* --- SECTION 1: UPCOMING MOVIES (COVERFLOW) --- */}
+      {/*SECTION 1: UPCOMING MOVIES (COVERFLOW)*/}
       <section className="w-full pt-10">
         <div className="px-8 max-w-7xl mx-auto">
           <h2 className="text-2xl font-bold mb-6 text-white border-l-4 border-red-600 pl-3 uppercase tracking-wide">
@@ -69,7 +69,7 @@ export default function Home() {
             slidesPerView={'auto'}
             loop={true}
             autoplay={{
-              delay: 3000,
+              delay: 2500,
               disableOnInteraction: false,
             }}
             coverflowEffect={{
@@ -77,7 +77,7 @@ export default function Home() {
               stretch: 50,       
               depth: 200,        
               modifier: 1,
-              slideShadows: false, /* Đã tắt shadow mặc định để nền hoàn toàn trong suốt */
+              slideShadows: false,
             }}
             navigation={{
               prevEl: '.custom-prev',
@@ -99,7 +99,6 @@ export default function Home() {
                     
                     <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500 ease-in-out"></div>
                     
-                    {/* KHỐI THÔNG TIN KIỂU APPLE MUSIC */}
                     <div className="absolute bottom-4 left-4 right-4 md:bottom-6 md:left-6 md:right-6 transform translate-y-10 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-500 ease-out z-10 pointer-events-none group-hover:pointer-events-auto">
                       
                       <div className="bg-white/95 backdrop-blur-md rounded-2xl md:rounded-[1.5rem] p-4 flex flex-col items-center justify-center shadow-2xl">
@@ -133,7 +132,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* --- SECTION 2: EXPLORE MORE --- */}
+      {/*SECTION 2: EXPLORE MORE*/}
       <section className="px-8 pb-10 max-w-7xl mx-auto">
         <h2 className="text-2xl font-bold mb-6 text-white border-l-4 border-gray-500 pl-3 uppercase tracking-wide">
           Explore More
