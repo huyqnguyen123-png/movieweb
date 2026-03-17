@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import Navbar from './Navbar';
 import Home from './Home';
 import Player from './Player';
 
@@ -6,10 +7,9 @@ function App() {
   return (
     <BrowserRouter>
       <div className="min-h-screen bg-black text-white">
-        <nav className="p-6 bg-[#1f2937]/50 backdrop-blur-md sticky top-0 z-50">
-          <h1 className="text-3xl font-black tracking-tighter text-red-600">MOVIX</h1>
-        </nav>
-        <main className="p-8">
+        <Navbar />
+
+        <main className="pt-4"> 
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/watch/:id" element={<Player />} />

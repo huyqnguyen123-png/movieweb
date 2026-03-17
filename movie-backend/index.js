@@ -17,7 +17,7 @@ const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
-// API: Get film list
+// API: Get films from local database
 app.get('/api/movies', async (req, res) => {
   try {
     const movies = await prisma.movie.findMany({ orderBy: { createdAt: 'desc' } });
@@ -27,163 +27,152 @@ app.get('/api/movies', async (req, res) => {
   }
 });
 
-// API: Get movie details (Supports both Local DB ID and TMDb ID)
-app.get('/api/movies/:id', async (req, res) => {
+// API: Smart Search
+app.get('/api/movies/search', async (req, res) => {
   try {
-    const paramId = req.params.id;
-    let movie = null;
+    const { q } = req.query;
+    if (!q) return res.json([]);
+    const response = await axios.get(
+      `https://api.themoviedb.org/3/search/multi?query=${encodeURIComponent(q)}&language=en-US&include_adult=false`,
+      { headers: { Authorization: process.env.TMDB_TOKEN } }
+    );
 
-    // Attempt to find the movie in the local database
-    try {
-      movie = await prisma.movie.findUnique({ where: { id: paramId } });
-    } catch (dbErr) {
-      // Ignore error if paramId is not a valid internal DB ID format
-    }
+    const results = response.data.results
+      .filter(m => m.media_type === 'movie' || m.media_type === 'tv')
+      .slice(0, 8)
+      .map(m => ({
+        id: m.id.toString(),
+        title: m.title || m.name, 
+        posterPath: m.poster_path ? `https://image.tmdb.org/t/p/w200${m.poster_path}` : null,
+        voteAverage: m.vote_average?.toFixed(1),
+        releaseDate: m.release_date || m.first_air_date,
+        mediaType: m.media_type 
+      }));
 
-    // If found in local DB, fetch additional Cast & Trailer details from TMDb
-    if (movie) {
-      try {
-        const [creditsRes, videosRes] = await Promise.all([
-          axios.get(`https://api.themoviedb.org/3/movie/${movie.tmdbId}/credits`, {
-            headers: { Authorization: process.env.TMDB_TOKEN }
-          }),
-          axios.get(`https://api.themoviedb.org/3/movie/${movie.tmdbId}/videos`, {
-            headers: { Authorization: process.env.TMDB_TOKEN }
-          })
-        ]);
-
-        const directorData = creditsRes.data.crew.find(c => c.job === 'Director');
-        movie.director = directorData ? {
-          id: directorData.id,
-          name: directorData.name,
-          profilePath: directorData.profile_path ? `https://image.tmdb.org/t/p/w200${directorData.profile_path}` : null
-        } : null;
-
-        movie.cast = creditsRes.data.cast.slice(0, 5).map(c => ({
-          id: c.id,
-          name: c.name,
-          character: c.character,
-          profilePath: c.profile_path ? `https://image.tmdb.org/t/p/w200${c.profile_path}` : null
-        })) || [];
-
-        const trailer = videosRes.data.results.find(v => v.type === 'Trailer' && v.site === 'YouTube');
-        movie.trailerKey = trailer ? trailer.key : null;
-      } catch (tmdbErr) {
-        console.error("TMDb API Error for local movie:", tmdbErr.message);
-        movie.director = null;
-        movie.cast = [];
-        movie.trailerKey = null;
-      }
-
-      return res.json(movie);
-    }
-
-    // If NOT found in local DB, fetch EVERYTHING directly from TMDb
-    const [tmdbMovieRes, creditsRes, videosRes] = await Promise.all([
-      axios.get(`https://api.themoviedb.org/3/movie/${paramId}`, {
-        headers: { Authorization: process.env.TMDB_TOKEN }
-      }),
-      axios.get(`https://api.themoviedb.org/3/movie/${paramId}/credits`, {
-        headers: { Authorization: process.env.TMDB_TOKEN }
-      }),
-      axios.get(`https://api.themoviedb.org/3/movie/${paramId}/videos`, {
-        headers: { Authorization: process.env.TMDB_TOKEN }
-      })
-    ]);
-
-    const tmdbMovie = tmdbMovieRes.data;
-    const directorData = creditsRes.data.crew.find(c => c.job === 'Director');
-    const trailer = videosRes.data.results.find(v => v.type === 'Trailer' && v.site === 'YouTube');
-
-    // Format the TMDb response to perfectly match Frontend schema requirements
-    const formattedMovie = {
-      id: paramId,
-      tmdbId: paramId,
-      title: tmdbMovie.title,
-      overview: tmdbMovie.overview,
-      posterPath: tmdbMovie.poster_path ? `https://image.tmdb.org/t/p/w500${tmdbMovie.poster_path}` : null,
-      backdropPath: tmdbMovie.backdrop_path ? `https://image.tmdb.org/t/p/original${tmdbMovie.backdrop_path}` : null,
-      releaseDate: tmdbMovie.release_date,
-      voteAverage: tmdbMovie.vote_average,
-      director: directorData ? {
-        id: directorData.id,
-        name: directorData.name,
-        profilePath: directorData.profile_path ? `https://image.tmdb.org/t/p/w200${directorData.profile_path}` : null
-      } : null,
-      cast: creditsRes.data.cast.slice(0, 5).map(c => ({
-        id: c.id,
-        name: c.name,
-        character: c.character,
-        profilePath: c.profile_path ? `https://image.tmdb.org/t/p/w200${c.profile_path}` : null
-      })) || [],
-      trailerKey: trailer ? trailer.key : null
-    };
-
-    return res.json(formattedMovie);
-
+    res.json(results);
   } catch (error) {
-    console.error("Server error or TMDb movie not found:", error.message);
-    res.status(404).json({ error: 'Movie not found' });
+    console.error("Search API Error:", error.message);
+    res.status(500).json({ error: 'Search failed' });
   }
 });
 
-// API: Actor/Director Details & Movie Credits
+// API: Get movie/tv details with intelligent type detection
+app.get('/api/movies/:id', async (req, res) => {
+  try {
+    const paramId = req.params.id;
+    const requestedType = req.query.type; 
+    
+    let movie = null;
+    try {
+      movie = await prisma.movie.findUnique({ where: { id: paramId } });
+    } catch (dbErr) {}
+
+    if (movie) {
+      const [creditsRes, videosRes] = await Promise.all([
+        axios.get(`https://api.themoviedb.org/3/movie/${movie.tmdbId}/credits`, { headers: { Authorization: process.env.TMDB_TOKEN } }),
+        axios.get(`https://api.themoviedb.org/3/movie/${movie.tmdbId}/videos`, { headers: { Authorization: process.env.TMDB_TOKEN } })
+      ]);
+      const directorData = creditsRes.data.crew.find(c => c.job === 'Director');
+      movie.director = directorData ? { id: directorData.id, name: directorData.name, profilePath: directorData.profile_path ? `https://image.tmdb.org/t/p/w200${directorData.profile_path}` : null } : null;
+      movie.cast = creditsRes.data.cast.slice(0, 5).map(c => ({ id: c.id, name: c.name, character: c.character, profilePath: c.profile_path ? `https://image.tmdb.org/t/p/w200${c.profile_path}` : null }));
+      const trailer = videosRes.data.results.find(v => v.type === 'Trailer' && v.site === 'YouTube');
+      movie.trailerKey = trailer ? trailer.key : null;
+      movie.mediaType = 'movie';
+      return res.json(movie);
+    }
+
+    // Auto-detect or use the provided hint
+    let mediaType = requestedType || 'movie';
+    let tmdbData;
+
+    const fetchData = async (type) => {
+      const main = await axios.get(`https://api.themoviedb.org/3/${type}/${paramId}`, { headers: { Authorization: process.env.TMDB_TOKEN } });
+      const credits = await axios.get(`https://api.themoviedb.org/3/${type}/${paramId}/credits`, { headers: { Authorization: process.env.TMDB_TOKEN } });
+      const videos = await axios.get(`https://api.themoviedb.org/3/${type}/${paramId}/videos`, { headers: { Authorization: process.env.TMDB_TOKEN } });
+      return { main: main.data, credits: credits.data, videos: videos.data };
+    };
+
+    let results;
+    try {
+      results = await fetchData(mediaType);
+    } catch (err) {
+      mediaType = mediaType === 'movie' ? 'tv' : 'movie';
+      results = await fetchData(mediaType);
+    }
+
+    tmdbData = results.main;
+    const directorData = results.credits.crew.find(c => c.job === 'Director' || c.job === 'Executive Producer');
+    const trailer = results.videos.results.find(v => v.type === 'Trailer' && v.site === 'YouTube');
+
+    return res.json({
+      id: paramId,
+      tmdbId: paramId,
+      title: tmdbData.title || tmdbData.name,
+      overview: tmdbData.overview,
+      posterPath: tmdbData.poster_path ? `https://image.tmdb.org/t/p/w500${tmdbData.poster_path}` : null,
+      backdropPath: tmdbData.backdrop_path ? `https://image.tmdb.org/t/p/original${tmdbData.backdrop_path}` : null,
+      releaseDate: tmdbData.release_date || tmdbData.first_air_date,
+      voteAverage: tmdbData.vote_average,
+      mediaType: mediaType,
+      seasons: tmdbData.seasons ? tmdbData.seasons.filter(s => s.season_number > 0) : null,
+      director: directorData ? { id: directorData.id, name: directorData.name, profilePath: directorData.profile_path ? `https://image.tmdb.org/t/p/w200${directorData.profile_path}` : null } : null,
+      cast: results.credits.cast.slice(0, 8).map(c => ({ id: c.id, name: c.name, character: c.character, profilePath: c.profile_path ? `https://image.tmdb.org/t/p/w200${c.profile_path}` : null })),
+      trailerKey: trailer ? trailer.key : null
+    });
+
+  } catch (error) {
+    console.error("Details API Error:", error.message);
+    res.status(404).json({ error: 'Content not found' });
+  }
+});
+
 app.get('/api/person/:id', async (req, res) => {
   try {
     const [personRes, creditsRes] = await Promise.all([
-      axios.get(`https://api.themoviedb.org/3/person/${req.params.id}`, {
-        headers: { Authorization: process.env.TMDB_TOKEN }
-      }),
-      axios.get(`https://api.themoviedb.org/3/person/${req.params.id}/movie_credits`, {
-        headers: { Authorization: process.env.TMDB_TOKEN }
-      })
+      axios.get(`https://api.themoviedb.org/3/person/${req.params.id}`, { headers: { Authorization: process.env.TMDB_TOKEN } }),
+      axios.get(`https://api.themoviedb.org/3/person/${req.params.id}/combined_credits`, { headers: { Authorization: process.env.TMDB_TOKEN } })
     ]);
 
-    const person = {
+    res.json({
       id: personRes.data.id,
       name: personRes.data.name,
       biography: personRes.data.biography || "No biography available.",
       profilePath: personRes.data.profile_path ? `https://image.tmdb.org/t/p/w500${personRes.data.profile_path}` : null,
       knownFor: personRes.data.known_for_department,
       birthday: personRes.data.birthday,
-      // Fetch the top 8 most popular movies 
       movies: creditsRes.data.cast.sort((a, b) => b.popularity - a.popularity).slice(0, 8).map(m => ({
         id: m.id,
-        title: m.title,
+        title: m.title || m.name,
         posterPath: m.poster_path ? `https://image.tmdb.org/t/p/w200${m.poster_path}` : null,
-        character: m.character
+        character: m.character,
+        mediaType: m.media_type
       }))
-    };
-    
-    res.json(person);
+    });
   } catch (error) {
     res.status(500).json({ error: 'Server error fetching person' });
   }
 });
 
-// API: Fetch movies by specific TMDb Genre ID for the homepage categories
 app.get('/api/movies/genre/:genreId', async (req, res) => {
   try {
     const { genreId } = req.params;
-    
-    // Discover movies associated with the provided genre ID, sorted by popularity
     const response = await axios.get(
-      `https://api.themoviedb.org/3/discover/movie?with_genres=${genreId}&language=en-US&sort_by=popularity.desc&page=1`,
+      `https://api.themoviedb.org/3/discover/movie?with_genres=${genreId}&language=en-US&sort_by=primary_release_date.desc&vote_count.gte=20&page=1`,
       { headers: { Authorization: process.env.TMDB_TOKEN } }
     );
 
-    // Map and format the top 10 results to match the frontend expectations
     const movies = response.data.results.slice(0, 20).map(m => ({
       id: m.id.toString(),
       title: m.title,
       posterPath: m.poster_path ? `https://image.tmdb.org/t/p/w500${m.poster_path}` : null,
-      voteAverage: m.vote_average
+      voteAverage: m.vote_average,
+      releaseDate: m.release_date,
+      mediaType: 'movie'
     }));
 
     res.json(movies);
   } catch (error) {
-    console.error("Error fetching genre:", error.message);
-    res.status(500).json({ error: 'Failed to fetch movies by genre' });
+    res.status(500).json({ error: 'Failed to fetch latest movies' });
   }
 });
 
