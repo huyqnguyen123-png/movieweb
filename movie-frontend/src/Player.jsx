@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
-import { useParams, Link, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, PlayCircle, Star, Calendar, Clapperboard, Users, Loader2, X, User, List } from 'lucide-react';
+import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
+import { ArrowLeft, PlayCircle, Star, Calendar, Clapperboard, Users, X, User, List } from 'lucide-react';
+import MovieLoader from './MovieLoader';
 
 const formatDate = (dateString) => {
   if (!dateString) return "Unknown";
@@ -14,7 +15,8 @@ const formatDate = (dateString) => {
 export default function Player() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
-  const mediaType = searchParams.get('type') || 'movie'; // Detect movie or tv from URL
+  const mediaType = searchParams.get('type') || 'movie';
+  const navigate = useNavigate(); 
 
   const [movie, setMovie] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -23,36 +25,55 @@ export default function Player() {
   // TV Series States
   const [season, setSeason] = useState(1);
   const [episode, setEpisode] = useState(1);
+  const [maxEpisodes, setMaxEpisodes] = useState(1); 
   
   const [selectedPerson, setSelectedPerson] = useState(null);
   const [personDetails, setPersonDetails] = useState(null);
   const [isPersonLoading, setIsPersonLoading] = useState(false);
 
   const videoRef = useRef(null);
+  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
   useEffect(() => {
     window.scrollTo(0, 0);
     setIsLoading(true);
     setActiveMedia(null); 
     
-    // Fetch with type hint to backend
-    fetch(`http://localhost:5000/api/movies/${id}?type=${mediaType}`)
+    fetch(`${API_URL}/api/movies/${id}?type=${mediaType}`)
       .then(res => res.json())
       .then(data => {
         setMovie(data);
+        
+        if (data.mediaType === 'tv' && data.seasons && data.seasons.length > 0) {
+          const firstSeason = data.seasons.find(s => s.season_number === 1) || data.seasons[0];
+          setSeason(firstSeason.season_number);
+          setMaxEpisodes(firstSeason.episode_count || 1);
+        }
+        
         setIsLoading(false);
       })
       .catch(err => {
         console.error(err);
         setIsLoading(false);
       });
-  }, [id, mediaType]);
+  }, [id, mediaType, API_URL]);
+
+  const handleSeasonChange = (e) => {
+    const newSeasonNumber = Number(e.target.value);
+    setSeason(newSeasonNumber);
+    setEpisode(1); 
+
+    const selectedSeasonData = movie.seasons.find(s => s.season_number === newSeasonNumber);
+    if (selectedSeasonData) {
+      setMaxEpisodes(selectedSeasonData.episode_count || 1);
+    }
+  };
 
   const handlePersonClick = (personId) => {
     if (!personId) return;
     setSelectedPerson(personId);
     setIsPersonLoading(true);
-    fetch(`http://localhost:5000/api/person/${personId}`)
+    fetch(`${API_URL}/api/person/${personId}`)
       .then(res => res.json())
       .then(data => {
         setPersonDetails(data);
@@ -83,24 +104,31 @@ export default function Player() {
     return `https://vidsrc.xyz/embed/movie?tmdb=${id}`;
   };
 
+  const handleBack = () => {
+    if (window.history.length > 1) {
+      navigate(-1); 
+    } else {
+      navigate("/");
+    }
+  };
+
   if (isLoading || !movie) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[70vh] space-y-4">
-        <Loader2 className="w-12 h-12 text-red-600 animate-spin" />
-        <p className="text-gray-400 font-medium animate-pulse">Loading content details...</p>
+      <div className="flex flex-col items-center justify-center min-h-[70vh]">
+        <MovieLoader size="xl" text={true} className="text-red-600" />
       </div>
     );
   }
 
   return (
     <div className="max-w-7xl mx-auto space-y-8 animate-[fadeIn_0.5s_ease-in-out] pb-10">
-      <Link 
-        to="/" 
+      <button 
+        onClick={handleBack}
         className="inline-flex items-center px-5 py-2.5 bg-gray-900 hover:bg-gray-800 text-gray-300 hover:text-white rounded-full transition-all group font-semibold shadow-[0_4px_15px_rgba(0,0,0,0.5)] border border-gray-700 hover:border-gray-500 w-fit"
       >
-        <ArrowLeft className="w-5 h-5 mr-2 transform group-hover:-translate-x-1 transition-transform" />
-        Back to Home
-      </Link>
+        <ArrowLeft className="select-none w-5 h-5 mr-2 transform group-hover:-translate-x-1 transition-transform" />
+        Back
+      </button>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
         <div className="lg:col-span-1 space-y-6">
@@ -144,7 +172,7 @@ export default function Player() {
 
           <div className="bg-gray-900/60 p-6 rounded-2xl border border-gray-800 shadow-lg">
             <h3 className="text-xl font-bold text-white mb-3">Storyline</h3>
-            <p className="text-gray-300 text-lg leading-relaxed">{movie.overview}</p>
+            <p className="select-text cursor-default caret-transparent text-gray-300 text-lg leading-relaxed">{movie.overview}</p>
           </div>
 
           <div className="space-y-6">
@@ -209,7 +237,7 @@ export default function Player() {
                       <div className="relative">
                         <select 
                           value={season} 
-                          onChange={(e) => { setSeason(Number(e.target.value)); setEpisode(1); }}
+                          onChange={handleSeasonChange}
                           className="w-full appearance-none bg-black/40 border border-white/10 text-white rounded-xl py-3.5 px-4 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-red-600/50 focus:border-red-600 transition-all cursor-pointer hover:bg-black/60"
                         >
                           {movie.seasons?.map(s => (
@@ -218,7 +246,6 @@ export default function Player() {
                             </option>
                           ))}
                         </select>
-                        {/* Custom Arrow Icon for Select */}
                         <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500">
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 9l-7 7-7-7"></path></svg>
                         </div>
@@ -229,7 +256,7 @@ export default function Player() {
                     <div className="w-full md:w-48 space-y-3">
                       <label className="text-[11px] uppercase font-black text-gray-400 tracking-[0.2em] flex items-center ml-1">
                         <PlayCircle className="w-3.5 h-3.5 mr-2 text-red-500" /> 
-                        Episode
+                        Episode (Max: {maxEpisodes})
                       </label>
                       <div className="relative flex items-center">
                         <button 
@@ -238,16 +265,25 @@ export default function Player() {
                         >
                           -
                         </button>
+                        
                         <input 
                           type="number" 
                           min="1" 
+                          max={maxEpisodes}
                           value={episode} 
-                          onChange={(e) => setEpisode(Number(e.target.value))}
+                          onChange={(e) => {
+                            let val = Number(e.target.value);
+                            if (val > maxEpisodes) val = maxEpisodes;
+                            if (val < 1) val = 1;
+                            setEpisode(val);
+                          }}
                           className="w-full bg-black/40 border border-white/10 text-white rounded-xl py-3.5 px-10 text-center text-sm font-black focus:outline-none focus:ring-2 focus:ring-red-600/50 focus:border-red-600 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         />
+                        
                         <button 
-                          onClick={() => setEpisode(prev => prev + 1)}
-                          className="absolute right-1 w-8 h-8 flex items-center justify-center bg-white/5 hover:bg-red-600 rounded-lg transition-colors text-white"
+                          onClick={() => setEpisode(prev => Math.min(maxEpisodes, prev + 1))}
+                          disabled={episode >= maxEpisodes}
+                          className={`absolute right-1 w-8 h-8 flex items-center justify-center rounded-lg transition-colors text-white ${episode >= maxEpisodes ? 'bg-white/5 opacity-50 cursor-not-allowed' : 'bg-white/5 hover:bg-red-600'}`}
                         >
                           +
                         </button>
@@ -282,7 +318,7 @@ export default function Player() {
         </div>
       </div>
 
-      {/* MODAL: PERSON DETAILS (REMAINED SAME AS YOURS) */}
+      {/* MODAL: PERSON DETAILS */}
       {selectedPerson && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-[fadeIn_0.2s_ease-in-out]">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={closePersonModal}></div>
@@ -292,7 +328,11 @@ export default function Player() {
               <button onClick={closePersonModal} className="text-gray-400 hover:text-white bg-gray-800 hover:bg-red-600 rounded-full p-1.5 transition-colors"><X className="w-6 h-6" /></button>
             </div>
             <div className="overflow-y-auto p-6 custom-scrollbar">
-              {isPersonLoading ? <Loader2 className="w-10 h-10 text-red-600 animate-spin mx-auto my-20" /> : personDetails && (
+              {isPersonLoading ? (
+                <div className="flex justify-center my-20">
+                  <MovieLoader size="lg" text={false} className="text-red-600" />
+                </div>
+              ) : personDetails && (
                 <div className="space-y-8">
                   <div className="flex flex-col sm:flex-row gap-6">
                     <img src={personDetails.profilePath || ""} alt="" className="w-40 h-56 object-cover rounded-xl shadow-lg border border-gray-700 mx-auto sm:mx-0" />
@@ -302,7 +342,7 @@ export default function Player() {
                         <span className="bg-gray-800 text-gray-300 px-3 py-1 rounded-md text-sm border border-gray-700">{personDetails.knownFor}</span>
                         {personDetails.birthday && <span className="bg-gray-800 text-gray-300 px-3 py-1 rounded-md text-sm border border-gray-700">Born: {formatDate(personDetails.birthday)}</span>}
                       </div>
-                      <p className="text-gray-300 text-sm leading-relaxed text-justify">{personDetails.biography}</p>
+                      <p className="select-text cursor-default caret-transparent text-gray-300 text-sm leading-relaxed text-justify">{personDetails.biography}</p>
                     </div>
                   </div>
                   {personDetails.movies?.length > 0 && (

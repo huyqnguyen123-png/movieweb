@@ -9,26 +9,38 @@ import 'swiper/css/effect-coverflow';
 import 'swiper/css/pagination';
 import 'swiper/css/navigation';
 
-// Reusable component that displays the 20 LATEST movies in a horizontally scrollable row
-const MovieCategory = ({ title, genreId }) => {
+// Reusable component for movie rows
+const MovieCategory = ({ title, genreId, isTrending = false }) => {
   const [movies, setMovies] = useState([]);
   const rowRef = useRef(null);
 
-  // Fetch data and set up auto-polling
   useEffect(() => {
-    const fetchLatestMovies = () => {
-      fetch(`http://localhost:5000/api/movies/genre/${genreId}`)
+    const fetchMovies = () => {
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      
+      const fetchUrl = isTrending 
+        ? `${API_URL}/api/movies/trending` 
+        : `${API_URL}/api/movies/genre/${genreId}`;
+
+      fetch(fetchUrl)
         .then(res => res.json())
-        .then(data => setMovies(data))
+        .then(data => {
+          const cleanData = data.filter(m => 
+            m.posterPath && 
+            m.title && 
+            m.title.toLowerCase() !== 'unknown' &&
+            m.releaseDate
+          );
+          setMovies(cleanData);
+        })
         .catch(err => console.error("Fetch error:", err));
     };
 
-    fetchLatestMovies();
-    const pollingInterval = setInterval(fetchLatestMovies, 300000);
+    fetchMovies();
+    const pollingInterval = setInterval(fetchMovies, 300000);
     return () => clearInterval(pollingInterval);
-  }, [genreId]);
+  }, [genreId, isTrending]);
 
-  // Smooth scroll logic (Lerp)
   useEffect(() => {
     const el = rowRef.current;
     if (!el) return;
@@ -71,15 +83,15 @@ const MovieCategory = ({ title, genreId }) => {
 
   return (
     <section className="px-8 pb-10 max-w-7xl mx-auto relative">
-      <h2 className="text-2xl font-bold mb-6 text-white border-l-4 border-gray-500 pl-3 uppercase tracking-wide">
+      <h2 className={`select-none text-2xl font-bold mb-6 text-white border-l-4 ${isTrending ? 'border-yellow-500' : 'border-gray-500'} pl-3 uppercase tracking-wide flex items-center gap-2`}>
         {title}
       </h2>
       
       <div ref={rowRef} className="flex gap-5 overflow-x-auto scrollbar-hide pb-4">
         {movies.map(movie => (
           <Link 
-            to={`/watch/${movie.id}`} 
-            key={`genre-${genreId}-${movie.id}`} 
+            to={`/watch/${movie.id}?type=${movie.mediaType || 'movie'}`} 
+            key={`row-${genreId || 'trending'}-${movie.id}`} 
             className="group/card relative overflow-hidden rounded-xl shadow-xl hover:-translate-y-2 transition-transform duration-300 border border-gray-800 w-[160px] sm:w-[200px] shrink-0"
           >
             <img 
@@ -120,9 +132,13 @@ export default function Home() {
   const [movies, setMovies] = useState([]);
 
   useEffect(() => {
-    fetch('http://localhost:5000/api/movies')
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    fetch(`${API_URL}/api/movies`)
       .then(res => res.json())
-      .then(data => setMovies(data))
+      .then(data => {
+        const cleanData = data.filter(m => m.posterPath && m.title && m.title.toLowerCase() !== 'unknown');
+        setMovies(cleanData);
+      })
       .catch(err => console.error(err));
   }, []);
 
@@ -154,10 +170,9 @@ export default function Home() {
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
       `}</style>
 
-      {/* SECTION 1: NEW ARRIVALS (COVERFLOW) */}
       <section className="w-full pt-10">
         <div className="px-8 max-w-7xl mx-auto">
-          <h2 className="text-2xl font-bold mb-6 text-white border-l-4 border-red-600 pl-3 uppercase tracking-wide">
+          <h2 className="select-none text-2xl font-bold mb-6 text-white border-l-4 border-red-600 pl-3 uppercase tracking-wide">
             New Arrivals
           </h2>
         </div>
@@ -179,7 +194,6 @@ export default function Home() {
             className="w-full py-10"
           >
             {newestMovies.map((movie) => {
-              // Enhanced Image Logic for Coverflow: Use backdrop first, fallback to poster, then placeholder
               const validImg = movie.backdropPath && !movie.backdropPath.includes('null') 
                                ? movie.backdropPath 
                                : movie.posterPath;
@@ -198,7 +212,7 @@ export default function Home() {
                       <div className="absolute bottom-6 left-6 right-6 transform translate-y-10 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-500 z-10">
                         <div className="bg-white/95 backdrop-blur-md rounded-2xl p-4 flex flex-col items-center shadow-2xl">
                           <h3 className="text-gray-900 font-black text-xl mb-3 text-center truncate w-full px-2">{movie.title}</h3>
-                          <Link to={`/watch/${movie.id}`} className="bg-red-600 hover:bg-red-500 text-white font-bold rounded-full px-8 py-2 flex items-center shadow-md transition-all"><Play className="w-4 h-4 fill-current mr-2" /> Play Now</Link>
+                          <Link to={`/watch/${movie.id}?type=${movie.mediaType || 'movie'}`} className="bg-red-600 hover:bg-red-500 text-white font-bold rounded-full px-8 py-2 flex items-center shadow-md transition-all"><Play className="w-4 h-4 fill-current mr-2" /> Play Now</Link>
                         </div>
                       </div>
                     </div>
@@ -210,8 +224,9 @@ export default function Home() {
         </div>
       </section>
 
-      {/* SECTION 2: CATEGORY ROWS */}
       <div className="pb-10 space-y-2">
+        <MovieCategory title="Trending Now" isTrending={true} />
+
         {categories.map((category) => (
           <MovieCategory 
             key={category.genreId} 

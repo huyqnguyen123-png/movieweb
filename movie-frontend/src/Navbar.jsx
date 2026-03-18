@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Search, Star, Loader2, X, ArrowRight, History } from 'lucide-react';
+import { Search, Star, X, ArrowRight, History, ArrowUpLeft } from 'lucide-react'; // Đã bỏ Loader2
+import MovieLoader from './MovieLoader'; // Import component loading mới
 
 export default function Navbar() {
   const [searchTerm, setSearchTerm] = useState('');
@@ -10,6 +11,7 @@ export default function Navbar() {
   const [showDropdown, setShowDropdown] = useState(false);
   
   const searchRef = useRef(null);
+  const inputRef = useRef(null); 
   const navigate = useNavigate();
 
   // Load search history from local storage
@@ -37,7 +39,10 @@ export default function Navbar() {
     }
     const timer = setTimeout(() => {
       setIsSearching(true);
-      fetch(`http://localhost:5000/api/movies/search?q=${encodeURIComponent(searchTerm)}`)
+      
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      
+      fetch(`${API_URL}/api/movies/search?q=${encodeURIComponent(searchTerm)}`)
         .then(res => res.json())
         .then(data => {
           setSearchResults(data);
@@ -48,13 +53,16 @@ export default function Navbar() {
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
+  // Navigate to the Search Results page on form submit
   const handleSearchSubmit = (e) => {
     if (e) e.preventDefault();
     if (searchTerm.trim()) {
-      const updatedHistory = [searchTerm, ...searchHistory.filter(item => item !== searchTerm)].slice(0, 5);
+      const updatedHistory = [searchTerm.trim(), ...searchHistory.filter(item => item !== searchTerm.trim())].slice(0, 5);
       setSearchHistory(updatedHistory);
       localStorage.setItem('movix_history', JSON.stringify(updatedHistory));
-      setShowDropdown(true);
+      
+      setShowDropdown(false);
+      navigate(`/search?q=${encodeURIComponent(searchTerm.trim())}`);
     }
   };
 
@@ -85,6 +93,7 @@ export default function Navbar() {
             </div>
     
             <input
+              ref={inputRef}
               type="text"
               value={searchTerm}
               onChange={(e) => { setSearchTerm(e.target.value); setShowDropdown(true); }}
@@ -125,21 +134,40 @@ export default function Navbar() {
                   {searchHistory.map((term, i) => (
                     <div 
                       key={i} 
-                      onClick={() => { setSearchTerm(term); handleSearchSubmit(); }} 
-                      className="flex items-center justify-between px-3 py-2 hover:bg-white/5 rounded-lg cursor-pointer group text-sm text-gray-300"
+                      onClick={() => { 
+                        setSearchTerm(term); 
+                        setShowDropdown(false);
+                        navigate(`/search?q=${encodeURIComponent(term)}`);
+                      }} 
+                      className="flex items-center justify-between px-3 py-2 hover:bg-white/5 rounded-lg cursor-pointer group text-sm text-gray-300 transition-colors"
                     >
-                      <div className="flex items-center gap-3"><History className="w-4 h-4 text-gray-600" />{term}</div>
+                      <div className="flex items-center gap-3">
+                        <History className="w-4 h-4 text-gray-600 group-hover:text-gray-400 transition-colors" />
+                        {term}
+                      </div>
+                      
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation(); 
+                          setSearchTerm(term);
+                          inputRef.current?.focus(); 
+                        }}
+                        className="p-1.5 text-gray-500 hover:text-white hover:bg-white/10 rounded-md opacity-0 group-hover:opacity-100 transition-all"
+                        title="Edit search term"
+                      >
+                        <ArrowUpLeft className="w-4 h-4" />
+                      </button>
                     </div>
                   ))}
                 </div>
               )}
 
-              {/* Results Section */}
               {searchTerm && (
                 <div className="max-h-[400px] overflow-y-auto custom-scrollbar">
                   {isSearching ? (
                     <div className="flex items-center justify-center p-8 text-gray-400 text-sm">
-                      <Loader2 className="w-5 h-5 animate-spin mr-3 text-red-600" /> Searching...
+                      <MovieLoader size="sm" className="mr-3" text={false} /> Searching...
                     </div>
                   ) : searchResults.length > 0 ? (
                     <div className="p-2">
@@ -174,7 +202,6 @@ export default function Navbar() {
           )}
         </div>
 
-        {/* Spacer for centering */}
         <div className="w-[100px] hidden lg:block"></div>
       </div>
       
