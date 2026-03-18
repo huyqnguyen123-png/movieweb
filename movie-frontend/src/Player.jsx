@@ -1,6 +1,11 @@
+// movie-frontend/src/Player.jsx
 import { useEffect, useState, useRef } from 'react';
 import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, PlayCircle, Star, Calendar, Clapperboard, Users, X, User, List } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion'; 
+import { 
+  ArrowLeft, PlayCircle, Star, Calendar, Clapperboard, 
+  Users, X, User, List, Bookmark, BookmarkCheck, Plus, Check
+} from 'lucide-react';
 import MovieLoader from './MovieLoader';
 
 const formatDate = (dateString) => {
@@ -12,6 +17,20 @@ const formatDate = (dateString) => {
   return dateString;
 };
 
+// Animation variants for Bookmark button
+const bookmarkVariants = {
+  idle: { scale: 1, rotate: 0 },
+  selected: { 
+    scale: [1, 1.2, 1], 
+    rotate: [0, -15, 0], 
+    transition: { duration: 0.4, ease: "easeInOut" } 
+  },
+  unselected: { 
+    scale: [1, 0.8, 1], 
+    transition: { duration: 0.3, ease: "easeOut" } 
+  }
+};
+
 export default function Player() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
@@ -21,6 +40,7 @@ export default function Player() {
   const [movie, setMovie] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [activeMedia, setActiveMedia] = useState(null);
+  const [error, setError] = useState(false);
 
   // TV Series States
   const [season, setSeason] = useState(1);
@@ -31,16 +51,35 @@ export default function Player() {
   const [personDetails, setPersonDetails] = useState(null);
   const [isPersonLoading, setIsPersonLoading] = useState(false);
 
+  // Playlist, Watch Later & Toast States 
+  const [isInWatchLater, setIsInWatchLater] = useState(false);
+  const [showPlaylistDropdown, setShowPlaylistDropdown] = useState(false);
+  const [customPlaylists, setCustomPlaylists] = useState([]);
+  const [toast, setToast] = useState({ show: false, message: "" });
+  const dropdownRef = useRef(null);
+
+  const [bookmarkAnimState, setBookmarkAnimState] = useState("idle");
+
   const videoRef = useRef(null);
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
+  // Helper to show success messages
+  const showToast = (msg) => {
+    setToast({ show: true, message: msg });
+    setTimeout(() => setToast({ show: false, message: "" }), 3000);
+  };
 
   useEffect(() => {
     window.scrollTo(0, 0);
     setIsLoading(true);
     setActiveMedia(null); 
+    setError(false);
     
     fetch(`${API_URL}/api/movies/${id}?type=${mediaType}`)
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error("Not found");
+        return res.json();
+      })
       .then(data => {
         setMovie(data);
         
@@ -49,20 +88,98 @@ export default function Player() {
           setSeason(firstSeason.season_number);
           setMaxEpisodes(firstSeason.episode_count || 1);
         }
-        
+
+        // Check Watch Later status
+        const watchLaterList = JSON.parse(localStorage.getItem('movix_watch_later')) || [];
+        setIsInWatchLater(watchLaterList.some(item => item.id === data.id));
+
+        // Save to Recently Watched
+        let recent = JSON.parse(localStorage.getItem('movix_recent')) || [];
+        const recentItem = { 
+          id: data.id, 
+          title: data.title, 
+          posterPath: data.posterPath, 
+          mediaType: data.mediaType || mediaType 
+        };
+        recent = [recentItem, ...recent.filter(item => item.id !== data.id)].slice(0, 20);
+        localStorage.setItem('movix_recent', JSON.stringify(recent));
+
         setIsLoading(false);
       })
       .catch(err => {
         console.error(err);
+        setError(true);
         setIsLoading(false);
       });
   }, [id, mediaType, API_URL]);
+
+  useEffect(() => {
+    const playlists = JSON.parse(localStorage.getItem('movix_playlists')) || [];
+    setCustomPlaylists(playlists);
+
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setShowPlaylistDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showPlaylistDropdown]);
+
+  // Playlist Actions 
+  const handleToggleWatchLater = () => {
+    if (!movie) return;
+    let watchLaterList = JSON.parse(localStorage.getItem('movix_watch_later')) || [];
+    
+    if (isInWatchLater) {
+      watchLaterList = watchLaterList.filter(item => item.id !== movie.id);
+      setIsInWatchLater(false);
+      setBookmarkAnimState("unselected"); 
+      showToast("Removed from Watch Later");
+    } else {
+      watchLaterList.unshift({
+        id: movie.id,
+        title: movie.title,
+        posterPath: movie.posterPath,
+        mediaType: movie.mediaType || mediaType
+      });
+      setIsInWatchLater(true);
+      setBookmarkAnimState("selected");
+      showToast("Added to Watch Later");
+    }
+    localStorage.setItem('movix_watch_later', JSON.stringify(watchLaterList));
+    setTimeout(() => setBookmarkAnimState("idle"), 500); 
+  };
+
+  const handleAddToCustomPlaylist = (playlistId) => {
+    if (!movie) return;
+    let playlists = JSON.parse(localStorage.getItem('movix_playlists')) || [];
+    const playlistIndex = playlists.findIndex(pl => pl.id === playlistId);
+    
+    if (playlistIndex > -1) {
+      if (!playlists[playlistIndex].items) playlists[playlistIndex].items = [];
+      
+      const exists = playlists[playlistIndex].items.some(item => item.id === movie.id);
+      if (!exists) {
+        playlists[playlistIndex].items.unshift({
+          id: movie.id,
+          title: movie.title,
+          posterPath: movie.posterPath,
+          mediaType: movie.mediaType || mediaType
+        });
+        playlists[playlistIndex].itemCount = playlists[playlistIndex].items.length;
+        localStorage.setItem('movix_playlists', JSON.stringify(playlists));
+        setCustomPlaylists(playlists);
+        showToast(`Added to ${playlists[playlistIndex].name}`);
+      }
+    }
+    setShowPlaylistDropdown(false); 
+  };
 
   const handleSeasonChange = (e) => {
     const newSeasonNumber = Number(e.target.value);
     setSeason(newSeasonNumber);
     setEpisode(1); 
-
     const selectedSeasonData = movie.seasons.find(s => s.season_number === newSeasonNumber);
     if (selectedSeasonData) {
       setMaxEpisodes(selectedSeasonData.episode_count || 1);
@@ -112,7 +229,7 @@ export default function Player() {
     }
   };
 
-  if (isLoading || !movie) {
+  if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[70vh]">
         <MovieLoader size="xl" text={true} className="text-red-600" />
@@ -120,11 +237,23 @@ export default function Player() {
     );
   }
 
+  if (error || !movie) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[70vh] text-white space-y-4">
+        <h2 className="text-3xl font-bold">Content Not Found</h2>
+        <p className="text-gray-400">The movie or TV show you are looking for does not exist.</p>
+        <button onClick={() => navigate('/')} className="px-6 py-2 bg-red-600 hover:bg-red-500 rounded-lg font-bold transition-colors">
+          Return Home
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="max-w-7xl mx-auto space-y-8 animate-[fadeIn_0.5s_ease-in-out] pb-10">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 space-y-8 animate-[fadeIn_0.5s_ease-in-out] pb-10 relative">
       <button 
         onClick={handleBack}
-        className="inline-flex items-center px-5 py-2.5 bg-gray-900 hover:bg-gray-800 text-gray-300 hover:text-white rounded-full transition-all group font-semibold shadow-[0_4px_15px_rgba(0,0,0,0.5)] border border-gray-700 hover:border-gray-500 w-fit"
+        className="inline-flex items-center px-5 py-2.5 bg-gray-900 hover:bg-gray-800 text-gray-300 hover:text-white rounded-full transition-all group font-semibold shadow-[0_4px_15px_rgba(0,0,0,0.5)] border border-gray-700 hover:border-gray-500 w-fit mt-6"
       >
         <ArrowLeft className="select-none w-5 h-5 mr-2 transform group-hover:-translate-x-1 transition-transform" />
         Back
@@ -143,17 +272,97 @@ export default function Player() {
               onClick={() => handleMediaSelect('movie')}
               className="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all hover:scale-[1.02] active:scale-95 shadow-[0_0_20px_rgba(220,38,38,0.4)]"
             >
-              <PlayCircle className="w-5 h-5" />
-              Watch Now
+              <PlayCircle className="w-5 h-5" /> Watch Now
             </button>
 
             <button 
               onClick={() => handleMediaSelect('trailer')}
               className="w-full bg-gray-800 hover:bg-gray-700 text-gray-200 font-bold py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all hover:scale-[1.02] active:scale-95 border border-gray-700 shadow-md"
             >
-              <Clapperboard className="w-5 h-5" />
-              Watch Trailer
+              <Clapperboard className="w-5 h-5" /> Watch Trailer
             </button>
+
+            <div className="flex items-center gap-3 mt-2 relative">
+              <button 
+                onClick={handleToggleWatchLater}
+                className={`flex-1 py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-colors duration-300 shadow-md group ${
+                  isInWatchLater 
+                    ? 'bg-red-600/10 text-red-500 hover:bg-red-600/20' 
+                    : 'bg-gray-900 text-gray-300 hover:bg-gray-800 hover:text-white'
+                }`}
+                title={isInWatchLater ? "Remove from Watch Later" : "Add to Watch Later"}
+              >
+                <motion.div
+                  animate={bookmarkAnimState}
+                  variants={bookmarkVariants}
+                  className="flex items-center justify-center"
+                >
+                  {isInWatchLater ? <BookmarkCheck className="w-5 h-5" /> : <Bookmark className="w-5 h-5 group-hover:scale-110 transition-transform" />}
+                </motion.div>
+              </button>
+
+              <div className="flex-1" ref={dropdownRef}>
+                <button 
+                  onClick={() => setShowPlaylistDropdown(!showPlaylistDropdown)}
+                  className={`w-full py-3 px-4 rounded-xl flex items-center justify-center transition-all shadow-md group ${
+                    showPlaylistDropdown
+                    ? 'bg-gray-700 text-white'
+                    : 'bg-gray-900 text-gray-300 hover:bg-gray-800 hover:text-white'
+                  }`}
+                  title="Add to Custom Playlist"
+                >
+                  <motion.div
+                    animate={{ rotate: showPlaylistDropdown ? 135 : 0 }} 
+                    transition={{ duration: 0.3, ease: "easeInOut" }}
+                    className="flex items-center justify-center"
+                  >
+                    <Plus className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                  </motion.div>
+                </button>
+
+                <AnimatePresence>
+                  {showPlaylistDropdown && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                      transition={{ duration: 0.2, ease: "easeOut" }}
+                      className="absolute bottom-full mb-3 left-0 w-full sm:w-64 bg-[#121212]/95 backdrop-blur-xl border border-gray-700 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8)] overflow-hidden z-50 origin-bottom-left"
+                    >
+                      <div className="p-4 border-b border-gray-800 bg-black/50">
+                        <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Save to Playlist</h4>
+                      </div>
+                      <div className="max-h-56 overflow-y-auto custom-scrollbar">
+                        {customPlaylists.length === 0 ? (
+                          <p className="p-6 text-sm text-gray-500 text-center italic">No playlists created yet.</p>
+                        ) : (
+                          <div className="p-2 space-y-1">
+                            {customPlaylists.map(pl => {
+                              const isAdded = pl.items?.some(item => item.id === movie.id);
+                              return (
+                                <button
+                                  key={pl.id}
+                                  onClick={() => handleAddToCustomPlaylist(pl.id)}
+                                  disabled={isAdded}
+                                  className="w-full flex items-center justify-between p-3 text-sm text-left hover:bg-gray-800 rounded-lg transition-colors text-white disabled:opacity-50 disabled:cursor-not-allowed group"
+                                >
+                                  <span className="truncate pr-3 font-medium">{pl.name}</span>
+                                  {isAdded ? (
+                                    <Check className="w-4 h-4 text-green-500 shrink-0" />
+                                  ) : (
+                                    <Plus className="w-4 h-4 text-gray-600 group-hover:text-white shrink-0 transition-colors" />
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -201,7 +410,6 @@ export default function Player() {
             </div>
           </div>
 
-          {/* DYNAMIC PLAYER SECTION */}
           {activeMedia && (
             <div ref={videoRef} className="pt-4 mt-8 border-t border-gray-800 animate-[fadeIn_0.5s_ease-in-out]">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
@@ -212,160 +420,106 @@ export default function Player() {
                     <><Clapperboard className="w-6 h-6 mr-2 text-red-500" /> Official Trailer</>
                   )}
                 </h3>
-                
-                <div className="flex items-center gap-3">
-                  <button 
-                    onClick={() => setActiveMedia(null)}
-                    className="inline-flex items-center px-5 py-2 bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white rounded-full transition-all font-bold border border-red-600/30 shadow-lg"
-                  >
-                    <X className="w-5 h-5 mr-1" /> Close Video
-                  </button>
-                </div>
+                <button onClick={() => setActiveMedia(null)} className="inline-flex items-center px-5 py-2 bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white rounded-full transition-all font-bold border border-red-600/30">
+                  <X className="w-5 h-5 mr-1" /> Close Video
+                </button>
               </div>
 
-              {/* TV SERIES SELECTOR */}
+              {/* Episode selector logic */}
               {activeMedia === 'movie' && movie.mediaType === 'tv' && (
-                <div className="animate-[fadeIn_0.4s_ease-out] mb-8 group">
-                  <div className="flex flex-col md:flex-row gap-4 p-5 bg-[#121212]/80 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl transition-all group-hover:border-red-600/30">
-      
-                    {/* Season Selection */}
-                    <div className="flex-1 space-y-3">
-                      <label className="text-[11px] uppercase font-black text-gray-400 tracking-[0.2em] flex items-center ml-1">
-                        <List className="w-3.5 h-3.5 mr-2 text-red-500" /> 
-                        Choose Season
-                      </label>
-                      <div className="relative">
-                        <select 
-                          value={season} 
-                          onChange={handleSeasonChange}
-                          className="w-full appearance-none bg-black/40 border border-white/10 text-white rounded-xl py-3.5 px-4 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-red-600/50 focus:border-red-600 transition-all cursor-pointer hover:bg-black/60"
-                        >
-                          {movie.seasons?.map(s => (
-                            <option key={s.id} value={s.season_number} className="bg-[#1a1a1a] text-white py-2">
-                              {s.name} ({s.episode_count} Episodes)
-                            </option>
-                          ))}
-                        </select>
-                        <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500">
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 9l-7 7-7-7"></path></svg>
-                        </div>
-                      </div>
+                <div className="mb-8 p-5 bg-[#121212]/80 backdrop-blur-xl border border-white/10 rounded-2xl flex flex-col md:flex-row gap-4">
+                  <div className="flex-1 space-y-3">
+                    <label className="text-[11px] uppercase font-black text-gray-400 flex items-center"><List className="w-3.5 h-3.5 mr-2" /> Season</label>
+                    <select value={season} onChange={handleSeasonChange} className="w-full bg-black/40 border border-white/10 text-white rounded-xl py-3 px-4 focus:ring-red-600">
+                      {movie.seasons?.map(s => <option key={s.id} value={s.season_number}>{s.name} ({s.episode_count} Eps)</option>)}
+                    </select>
+                  </div>
+                  <div className="w-full md:w-48 space-y-3">
+                    <label className="text-[11px] uppercase font-black text-gray-400 flex items-center"><PlayCircle className="w-3.5 h-3.5 mr-2" /> Episode</label>
+                    <div className="flex items-center relative">
+                      <button onClick={() => setEpisode(prev => Math.max(1, prev - 1))} className="absolute left-1 bg-white/5 p-2 rounded-lg">-</button>
+                      <input type="number" value={episode} readOnly className="w-full bg-black/40 border border-white/10 text-white rounded-xl py-3 text-center" />
+                      <button onClick={() => setEpisode(prev => Math.min(maxEpisodes, prev + 1))} className="absolute right-1 bg-white/5 p-2 rounded-lg">+</button>
                     </div>
-
-                    {/* Episode Selection */}
-                    <div className="w-full md:w-48 space-y-3">
-                      <label className="text-[11px] uppercase font-black text-gray-400 tracking-[0.2em] flex items-center ml-1">
-                        <PlayCircle className="w-3.5 h-3.5 mr-2 text-red-500" /> 
-                        Episode (Max: {maxEpisodes})
-                      </label>
-                      <div className="relative flex items-center">
-                        <button 
-                          onClick={() => setEpisode(prev => Math.max(1, prev - 1))}
-                          className="absolute left-1 w-8 h-8 flex items-center justify-center bg-white/5 hover:bg-red-600 rounded-lg transition-colors text-white"
-                        >
-                          -
-                        </button>
-                        
-                        <input 
-                          type="number" 
-                          min="1" 
-                          max={maxEpisodes}
-                          value={episode} 
-                          onChange={(e) => {
-                            let val = Number(e.target.value);
-                            if (val > maxEpisodes) val = maxEpisodes;
-                            if (val < 1) val = 1;
-                            setEpisode(val);
-                          }}
-                          className="w-full bg-black/40 border border-white/10 text-white rounded-xl py-3.5 px-10 text-center text-sm font-black focus:outline-none focus:ring-2 focus:ring-red-600/50 focus:border-red-600 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        />
-                        
-                        <button 
-                          onClick={() => setEpisode(prev => Math.min(maxEpisodes, prev + 1))}
-                          disabled={episode >= maxEpisodes}
-                          className={`absolute right-1 w-8 h-8 flex items-center justify-center rounded-lg transition-colors text-white ${episode >= maxEpisodes ? 'bg-white/5 opacity-50 cursor-not-allowed' : 'bg-white/5 hover:bg-red-600'}`}
-                        >
-                          +
-                        </button>
-                      </div>
-                    </div>
-
                   </div>
                 </div>
               )}
 
+              {/* PLAYER IFRAME LOGIC */}
               <div className="bg-black rounded-2xl overflow-hidden shadow-2xl border border-gray-800 ring-4 ring-gray-900">
                 {activeMedia === 'movie' ? (
-                  <iframe
-                    className="w-full aspect-video outline-none"
-                    src={getEmbedUrl()}
-                    title={`${movie.title} Player`}
-                    frameBorder="0"
+                  <iframe className="w-full aspect-video outline-none" src={getEmbedUrl()} frameBorder="0" allowFullScreen></iframe>
+                ) : movie?.trailerKey ? (
+                  <iframe 
+                    className="w-full aspect-video outline-none" 
+                    src={`https://www.youtube.com/embed/${movie.trailerKey}?autoplay=1&loop=1&playlist=${movie.trailerKey}&rel=0`} 
+                    title="Trailer" 
+                    frameBorder="0" 
                     allowFullScreen
                   ></iframe>
                 ) : (
-                  <iframe
-                    className="w-full aspect-video outline-none"
-                    src={`https://www.youtube.com/embed/${movie.trailerKey}?autoplay=1&rel=0&loop=1&playlist=${movie.trailerKey}`}
-                    title="Trailer"
-                    frameBorder="0"
-                    allowFullScreen
-                  ></iframe>
+                  <div className="w-full aspect-video flex flex-col items-center justify-center bg-gray-900 text-gray-500">
+                    <Clapperboard className="w-12 h-12 mb-2 opacity-50" />
+                    <p>Sorry, the official trailer is not available for this title.</p>
+                  </div>
                 )}
               </div>
+              
             </div>
           )}
         </div>
       </div>
 
-      {/* MODAL: PERSON DETAILS */}
-      {selectedPerson && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-[fadeIn_0.2s_ease-in-out]">
-          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={closePersonModal}></div>
-          <div className="relative w-full max-w-4xl max-h-[90vh] bg-gray-900 border border-gray-700 rounded-2xl overflow-hidden flex flex-col">
-            <div className="flex justify-between items-center p-5 border-b border-gray-800 bg-gray-900 z-10">
-              <h2 className="text-xl font-bold text-white flex items-center"><User className="w-5 h-5 mr-2 text-red-500" /> Biography</h2>
-              <button onClick={closePersonModal} className="text-gray-400 hover:text-white bg-gray-800 hover:bg-red-600 rounded-full p-1.5 transition-colors"><X className="w-6 h-6" /></button>
-            </div>
-            <div className="overflow-y-auto p-6 custom-scrollbar">
-              {isPersonLoading ? (
-                <div className="flex justify-center my-20">
-                  <MovieLoader size="lg" text={false} className="text-red-600" />
-                </div>
-              ) : personDetails && (
-                <div className="space-y-8">
-                  <div className="flex flex-col sm:flex-row gap-6">
-                    <img src={personDetails.profilePath || ""} alt="" className="w-40 h-56 object-cover rounded-xl shadow-lg border border-gray-700 mx-auto sm:mx-0" />
-                    <div className="space-y-4 text-center sm:text-left">
-                      <h2 className="text-3xl font-black text-white">{personDetails.name}</h2>
-                      <div className="flex flex-wrap gap-3 justify-center sm:justify-start">
-                        <span className="bg-gray-800 text-gray-300 px-3 py-1 rounded-md text-sm border border-gray-700">{personDetails.knownFor}</span>
-                        {personDetails.birthday && <span className="bg-gray-800 text-gray-300 px-3 py-1 rounded-md text-sm border border-gray-700">Born: {formatDate(personDetails.birthday)}</span>}
+      <AnimatePresence>
+        {toast.show && (
+          <motion.div 
+            initial={{ opacity: 0, y: 50, x: "-50%" }} 
+            animate={{ opacity: 1, y: 0, x: "-50%" }} 
+            exit={{ opacity: 0, y: 20, x: "-50%" }} 
+            className="fixed bottom-10 left-1/2 z-[200] bg-white text-black px-6 py-3 rounded-2xl shadow-[0_10px_40px_rgba(255,255,255,0.2)] flex items-center gap-3 font-bold"
+          >
+            <div className="bg-green-500 p-1 rounded-full"><Check className="text-white w-4 h-4" strokeWidth={3} /></div>
+            {toast.message}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {selectedPerson && (
+          <motion.div 
+            initial={{ opacity: 0 }} 
+            animate={{ opacity: 1 }} 
+            exit={{ opacity: 0 }} 
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          >
+            <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={closePersonModal}></div>
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }} 
+              animate={{ scale: 1, opacity: 1 }} 
+              className="relative w-full max-w-4xl max-h-[90vh] bg-gray-900 border border-gray-700 rounded-2xl overflow-hidden flex flex-col"
+            >
+              <div className="flex justify-between items-center p-5 border-b border-gray-800">
+                <h2 className="text-xl font-bold text-white flex items-center"><User className="w-5 h-5 mr-2 text-red-500" /> Biography</h2>
+                <button onClick={closePersonModal} className="text-gray-400 hover:text-white bg-gray-800 hover:bg-red-600 rounded-full p-1.5 transition-colors"><X className="w-6 h-6" /></button>
+              </div>
+              <div className="overflow-y-auto p-6 custom-scrollbar">
+                {isPersonLoading ? <MovieLoader size="lg" /> : personDetails && (
+                  <div className="space-y-8">
+                    <div className="flex flex-col sm:flex-row gap-6">
+                      <img src={personDetails.profilePath || ""} alt="" className="w-40 h-56 object-cover rounded-xl border border-gray-700 shadow-lg" />
+                      <div className="space-y-4">
+                        <h2 className="text-3xl font-black text-white">{personDetails.name}</h2>
+                        <p className="text-gray-300 text-sm leading-relaxed text-justify">{personDetails.biography}</p>
                       </div>
-                      <p className="select-text cursor-default caret-transparent text-gray-300 text-sm leading-relaxed text-justify">{personDetails.biography}</p>
                     </div>
                   </div>
-                  {personDetails.movies?.length > 0 && (
-                    <div className="pt-6 border-t border-gray-800">
-                      <h3 className="text-lg font-bold text-white mb-4">Known For</h3>
-                      <div className="flex overflow-x-auto gap-4 pb-4 custom-scrollbar">
-                        {personDetails.movies.map(m => (
-                          <Link to={`/watch/${m.id}?type=${m.mediaType || 'movie'}`} key={m.id} onClick={closePersonModal} className="w-32 shrink-0 group">
-                            <img src={m.posterPath || ""} alt="" className="w-32 h-48 object-cover rounded-lg shadow-md border border-gray-800 group-hover:border-red-500 transition-all" />
-                            <p className="text-white text-sm font-bold mt-2 truncate group-hover:text-red-400">{m.title}</p>
-                            <p className="text-gray-500 text-xs truncate">{m.character}</p>
-                          </Link>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-      <style>{`.custom-scrollbar::-webkit-scrollbar { height: 6px; width: 6px; }.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }.custom-scrollbar::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 10px; }.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #dc2626; }`}</style>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      <style>{`.custom-scrollbar::-webkit-scrollbar { height: 6px; width: 6px; }.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }.custom-scrollbar::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 10px; }`}</style>
     </div>
   );
 }

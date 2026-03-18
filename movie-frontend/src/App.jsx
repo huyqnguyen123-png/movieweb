@@ -1,9 +1,11 @@
+// movie-frontend/src/App.jsx
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { useEffect } from 'react'; // Import thêm useEffect
+import { useEffect } from 'react';
 import Navbar from './Navbar';
 import Home from './Home';
 import Player from './Player';
 import SearchResults from './SearchResults';
+import PlaylistDetail from './PlaylistDetail'; 
 
 function App() {
   useEffect(() => {
@@ -27,6 +29,8 @@ function App() {
             <Route path="/" element={<Home />} />
             <Route path="/watch/:id" element={<Player />} />
             <Route path="/search" element={<SearchResults />} />
+            <Route path="/library/:type" element={<PlaylistDetail />} />
+            <Route path="/library/playlist/:id" element={<PlaylistDetail />} />
           </Routes>
         </main>
       </div>
