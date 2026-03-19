@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Swiper, SwiperSlide } from 'swiper/react';
 import { EffectCoverflow, Pagination, Navigation, Autoplay } from 'swiper/modules';
-import { Play, Star, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Play, Star, ChevronLeft, ChevronRight, AlertCircle } from 'lucide-react';
 
 import 'swiper/css';
 import 'swiper/css/effect-coverflow';
@@ -23,7 +23,10 @@ const MovieCategory = ({ title, genreId, isTrending = false }) => {
         : `${API_URL}/api/movies/genre/${genreId}`;
 
       fetch(fetchUrl)
-        .then(res => res.json())
+        .then(res => {
+          if (!res.ok) throw new Error('Network response was not ok');
+          return res.json();
+        })
         .then(data => {
           const cleanData = data.filter(m => 
             m.posterPath && 
@@ -33,7 +36,7 @@ const MovieCategory = ({ title, genreId, isTrending = false }) => {
           );
           setMovies(cleanData);
         })
-        .catch(err => console.error("Fetch error:", err));
+        .catch(err => console.error("Fetch error for row:", err));
     };
 
     fetchMovies();
@@ -79,6 +82,7 @@ const MovieCategory = ({ title, genreId, isTrending = false }) => {
     };
   }, [movies]); 
 
+  // Do not render the category if it has no movies (after trying to fetch)
   if (movies.length === 0) return null;
 
   return (
@@ -130,19 +134,67 @@ const MovieCategory = ({ title, genreId, isTrending = false }) => {
 
 export default function Home() {
   const [movies, setMovies] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-    fetch(`${API_URL}/api/movies`)
-      .then(res => res.json())
-      .then(data => {
+    const fetchHomeMovies = async () => {
+      setIsLoading(true);
+      setError(null);
+      
+      try {
+        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+        const res = await fetch(`${API_URL}/api/movies`);
+        
+        if (!res.ok) {
+          throw new Error('Failed to fetch movies from the server.');
+        }
+
+        const data = await res.json();
         const cleanData = data.filter(m => m.posterPath && m.title && m.title.toLowerCase() !== 'unknown');
         setMovies(cleanData);
-      })
-      .catch(err => console.error(err));
+      } catch (err) {
+        console.error("Home component fetch error:", err);
+        setError(err.message);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchHomeMovies();
   }, []);
 
-  if (movies.length === 0) return <div className="text-center p-20 text-white animate-pulse">Loading Hub...</div>;
+  // Show a professional loading spinner while fetching
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[70vh] text-white">
+        <svg className="animate-spin h-12 w-12 text-red-600 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <p className="animate-pulse text-xl font-medium tracking-wider">Loading Hub...</p>
+      </div>
+    );
+  }
+
+  // Show a professional error message if fetch fails
+  if (error || movies.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[70vh] text-white px-4 text-center">
+        <AlertCircle className="w-16 h-16 text-gray-600 mb-4" />
+        <h2 className="text-2xl font-bold mb-2">Oops! Couldn't load movies.</h2>
+        <p className="text-gray-400 max-w-md">
+          {error || "We couldn't find any movies to display right now. Please make sure your backend server is running on port 5000."}
+        </p>
+        <button 
+          onClick={() => window.location.reload()} 
+          className="mt-6 px-6 py-2 bg-red-600 hover:bg-red-500 rounded-full font-bold transition-colors"
+        >
+          Try Again
+        </button>
+      </div>
+    );
+  }
 
   const newestMovies = [...movies]
     .sort((a, b) => new Date(b.releaseDate) - new Date(a.releaseDate))

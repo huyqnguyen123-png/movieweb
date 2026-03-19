@@ -6,6 +6,8 @@ import Home from './Home';
 import Player from './Player';
 import SearchResults from './SearchResults';
 import PlaylistDetail from './PlaylistDetail'; 
+import AuthPage from './Auth'; 
+import Profile from './Profile'; 
 
 function App() {
   useEffect(() => {
@@ -31,6 +33,8 @@ function App() {
             <Route path="/search" element={<SearchResults />} />
             <Route path="/library/:type" element={<PlaylistDetail />} />
             <Route path="/library/playlist/:id" element={<PlaylistDetail />} />
+            <Route path="/auth" element={<AuthPage />} />
+            <Route path="/profile" element={<Profile />} /> 
           </Routes>
         </main>
       </div>

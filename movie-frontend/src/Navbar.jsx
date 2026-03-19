@@ -1,10 +1,11 @@
 // movie-frontend/src/Navbar.jsx
 import { useState, useEffect, useRef } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Search, Star, X, ArrowRight, History, ArrowUpLeft, 
-  Menu, Clock, Bookmark, Plus, ListVideo, Trash2, Check
+  Search, Star, X, ArrowRight, History, 
+  Menu, Clock, Bookmark, Plus, ListVideo, Trash2, Check,
+  User, LogIn, UserPlus, LogOut 
 } from 'lucide-react'; 
 import MovieLoader from './MovieLoader'; 
 
@@ -21,20 +22,39 @@ export default function Navbar() {
   const [isCreatingPlaylist, setIsCreatingPlaylist] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState('');
   
+  // User Menu state
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const userMenuRef = useRef(null);
+
+  // Use real state for logged in status and user data
+  const [isLoggedIn, setIsLoggedIn] = useState(false); 
+  const [currentUser, setCurrentUser] = useState(null);
+
   const searchRef = useRef(null);
   const inputRef = useRef(null); 
   const navigate = useNavigate();
+  const location = useLocation();
 
-  // Load search history and custom playlists on initial mount
+  // Load search history, custom playlists, and user data on initial mount or route change
   useEffect(() => {
     const savedHistory = JSON.parse(localStorage.getItem('movix_history')) || [];
     setSearchHistory(savedHistory);
 
     const savedPlaylists = JSON.parse(localStorage.getItem('movix_playlists')) || [];
     setPlaylists(savedPlaylists);
-  }, []);
 
-  // SYNC LOGIC: Refresh playlists whenever the sidebar is open
+    // Check if user is logged in
+    const storedUser = localStorage.getItem('currentUser');
+    if (storedUser) {
+      setCurrentUser(JSON.parse(storedUser));
+      setIsLoggedIn(true);
+    } else {
+      setCurrentUser(null);
+      setIsLoggedIn(false);
+    }
+  }, [location.pathname]); 
+
+  // Sync logic: Refresh playlists whenever the sidebar is open
   useEffect(() => {
     if (isSidebarOpen) {
       const savedPlaylists = JSON.parse(localStorage.getItem('movix_playlists')) || [];
@@ -42,11 +62,14 @@ export default function Navbar() {
     }
   }, [isSidebarOpen]);
 
-  // Handle outside clicks to close the search dropdown
+  // Handle outside clicks to close the search dropdown and user menu
   useEffect(() => {
     function handleClickOutside(event) {
       if (searchRef.current && !searchRef.current.contains(event.target)) {
         setShowDropdown(false);
+      }
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target)) {
+        setIsUserMenuOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -100,7 +123,7 @@ export default function Navbar() {
     setShowDropdown(false);
   };
 
-  // PLAYLIST LOGIC 
+  // Playlist logic 
   const handleCreatePlaylist = (e) => {
     e.preventDefault();
     if (!newPlaylistName.trim()) return;
@@ -124,6 +147,23 @@ export default function Navbar() {
     const updatedPlaylists = playlists.filter(pl => pl.id !== id);
     setPlaylists(updatedPlaylists);
     localStorage.setItem('movix_playlists', JSON.stringify(updatedPlaylists));
+  };
+
+  // Logout Logic
+  const handleLogout = () => {
+    localStorage.removeItem('currentUser');
+    setIsLoggedIn(false);
+    setCurrentUser(null);
+    setIsUserMenuOpen(false);
+    navigate('/');
+  };
+
+  // Get Initial 
+  const getInitial = () => {
+    if (currentUser && currentUser.firstName) {
+      return currentUser.firstName.charAt(0).toUpperCase();
+    }
+    return <User className="w-5 h-5" />;
   };
 
   return (
@@ -214,7 +254,79 @@ export default function Navbar() {
             </AnimatePresence>
           </div>
 
-          <div className="w-[100px] hidden lg:block"></div>
+          {/* USER AUTH MENU AREA */}
+          <div className="flex items-center justify-end shrink-0 z-[160] relative lg:min-w-[100px]" ref={userMenuRef}>
+            <button
+              onClick={() => {
+                if (isLoggedIn) {
+                  setIsUserMenuOpen(!isUserMenuOpen);
+                } else {
+                  navigate('/auth?mode=login');
+                }
+              }}
+              className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg transition-all duration-300 focus:outline-none relative z-10 ${
+                isUserMenuOpen || isLoggedIn
+                  ? 'bg-red-600 text-white shadow-lg shadow-red-600/30' 
+                  : 'bg-white/5 hover:bg-white/10 text-gray-300'
+              }`}
+            >
+               {getInitial()}
+            </button>
+
+            <AnimatePresence>
+              {isUserMenuOpen && isLoggedIn && (
+                <motion.div
+                  initial={{ opacity: 0, y: 15, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 15, scale: 0.95 }}
+                  transition={{ duration: 0.15 }}
+                  className="absolute top-full right-0 mt-4 w-56 bg-[#1a1a1a] border border-white/10 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8)] py-1 overflow-visible z-[200]"
+                >
+                  <div className="absolute -top-[7px] right-[14px] w-3.5 h-3.5 bg-[#1a1a1a] border-t border-l border-white/10 rotate-45 z-20 rounded-tl-[2px]"></div>
+                  
+                  {/* Menu Items */}
+                  <div className="relative z-10 bg-transparent flex flex-col">
+                    <div className="px-5 py-4 cursor-default">
+                      <p className="text-[15px] font-bold text-white truncate leading-tight">
+                        {currentUser?.firstName} {currentUser?.lastName}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-1 truncate">
+                        {currentUser?.email}
+                      </p>
+                    </div>
+                    
+                    <div className="h-px bg-white/10 w-full"></div>
+                    
+                    {/* Profile Link */}
+                    <div className="p-1.5">
+                      <Link
+                        to="/profile"
+                        className="flex items-center px-3.5 py-3 text-sm font-bold text-gray-300 hover:text-white hover:bg-white/5 rounded-xl transition-colors"
+                        onClick={() => setIsUserMenuOpen(false)}
+                      >
+                        <User className="w-4 h-4 mr-3 text-gray-400" />
+                        Profile
+                      </Link>
+                    </div>
+
+                    <div className="h-px bg-white/10 w-full"></div>
+                    
+                    {/* Log out Button */}
+                    <div className="p-1.5">
+                      <button
+                        onClick={handleLogout}
+                        className="w-full flex items-center px-3.5 py-3 text-sm font-bold text-red-500 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-colors"
+                      >
+                        <LogOut className="w-4 h-4 mr-3" />
+                        Log out
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
         </div>
       </nav>
 

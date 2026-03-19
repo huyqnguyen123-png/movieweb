@@ -1,7 +1,8 @@
+// movie-frontend/src/SearchResults.jsx
 import { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Star, ArrowLeft, Film, Tv } from 'lucide-react'; // Removed Loader2
-import MovieLoader from './MovieLoader'; // Imported custom loader
+import { Star, ArrowLeft, Film, Tv } from 'lucide-react'; 
+import MovieLoader from './MovieLoader'; 
 
 export default function SearchResults() {
   const [searchParams] = useSearchParams();
@@ -32,13 +33,18 @@ export default function SearchResults() {
       });
   }, [query]);
 
+  // Guaranteed return to home page
+  const handleBack = () => {
+    navigate('/');
+  };
+
   return (
     <div className="min-h-screen bg-[#0a0a0a] pb-20">
       {/* Header Area */}
       <div className="sticky top-0 z-10 bg-[#0a0a0a]/90 backdrop-blur-md border-b border-white/5 pt-8 pb-4 mb-6">
         <div className="max-w-3xl mx-auto px-4 flex items-center gap-4">
           <button 
-            onClick={() => navigate(-1)}
+            onClick={handleBack}
             className="w-10 h-10 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 text-white transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />

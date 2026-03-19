@@ -4,7 +4,7 @@ import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'; 
 import { 
   ArrowLeft, PlayCircle, Star, Calendar, Clapperboard, 
-  Users, X, User, List, Bookmark, BookmarkCheck, Plus, Check
+  Users, X, User, List, Bookmark, BookmarkCheck, Plus, Check, ChevronDown 
 } from 'lucide-react';
 import MovieLoader from './MovieLoader';
 
@@ -46,24 +46,28 @@ export default function Player() {
   const [season, setSeason] = useState(1);
   const [episode, setEpisode] = useState(1);
   const [maxEpisodes, setMaxEpisodes] = useState(1); 
+  const [isSeasonDropdownOpen, setIsSeasonDropdownOpen] = useState(false); 
   
   const [selectedPerson, setSelectedPerson] = useState(null);
   const [personDetails, setPersonDetails] = useState(null);
   const [isPersonLoading, setIsPersonLoading] = useState(false);
 
-  // Playlist, Watch Later & Toast States 
+  // Playlist & Watch Later States 
   const [isInWatchLater, setIsInWatchLater] = useState(false);
   const [showPlaylistDropdown, setShowPlaylistDropdown] = useState(false);
   const [customPlaylists, setCustomPlaylists] = useState([]);
-  const [toast, setToast] = useState({ show: false, message: "" });
+  
+  // Refs
   const dropdownRef = useRef(null);
+  const seasonDropdownRef = useRef(null); 
+  const videoRef = useRef(null);
 
   const [bookmarkAnimState, setBookmarkAnimState] = useState("idle");
+  const [toast, setToast] = useState({ show: false, message: "" });
 
-  const videoRef = useRef(null);
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
-  // Helper to show success messages
+  // Helper to show toast messages
   const showToast = (msg) => {
     setToast({ show: true, message: msg });
     setTimeout(() => setToast({ show: false, message: "" }), 3000);
@@ -121,12 +125,14 @@ export default function Player() {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
         setShowPlaylistDropdown(false);
       }
+      if (seasonDropdownRef.current && !seasonDropdownRef.current.contains(event.target)) {
+        setIsSeasonDropdownOpen(false);
+      }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [showPlaylistDropdown]);
+  }, [showPlaylistDropdown, isSeasonDropdownOpen]);
 
-  // Playlist Actions 
   const handleToggleWatchLater = () => {
     if (!movie) return;
     let watchLaterList = JSON.parse(localStorage.getItem('movix_watch_later')) || [];
@@ -135,7 +141,7 @@ export default function Player() {
       watchLaterList = watchLaterList.filter(item => item.id !== movie.id);
       setIsInWatchLater(false);
       setBookmarkAnimState("unselected"); 
-      showToast("Removed from Watch Later");
+      showToast("Removed from Watch Later"); 
     } else {
       watchLaterList.unshift({
         id: movie.id,
@@ -145,7 +151,7 @@ export default function Player() {
       });
       setIsInWatchLater(true);
       setBookmarkAnimState("selected");
-      showToast("Added to Watch Later");
+      showToast("Added to Watch Later"); 
     }
     localStorage.setItem('movix_watch_later', JSON.stringify(watchLaterList));
     setTimeout(() => setBookmarkAnimState("idle"), 500); 
@@ -158,7 +164,6 @@ export default function Player() {
     
     if (playlistIndex > -1) {
       if (!playlists[playlistIndex].items) playlists[playlistIndex].items = [];
-      
       const exists = playlists[playlistIndex].items.some(item => item.id === movie.id);
       if (!exists) {
         playlists[playlistIndex].items.unshift({
@@ -170,14 +175,13 @@ export default function Player() {
         playlists[playlistIndex].itemCount = playlists[playlistIndex].items.length;
         localStorage.setItem('movix_playlists', JSON.stringify(playlists));
         setCustomPlaylists(playlists);
-        showToast(`Added to ${playlists[playlistIndex].name}`);
+        showToast(`Added to ${playlists[playlistIndex].name}`); 
       }
     }
     setShowPlaylistDropdown(false); 
   };
 
-  const handleSeasonChange = (e) => {
-    const newSeasonNumber = Number(e.target.value);
+  const handleSeasonChange = (newSeasonNumber) => {
     setSeason(newSeasonNumber);
     setEpisode(1); 
     const selectedSeasonData = movie.seasons.find(s => s.season_number === newSeasonNumber);
@@ -221,6 +225,7 @@ export default function Player() {
     return `https://vidsrc.xyz/embed/movie?tmdb=${id}`;
   };
 
+  // Clean and simple Back logic 
   const handleBack = () => {
     if (window.history.length > 1) {
       navigate(-1); 
@@ -248,6 +253,8 @@ export default function Player() {
       </div>
     );
   }
+
+  const currentSeasonData = movie?.seasons?.find(s => s.season_number === season);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 space-y-8 animate-[fadeIn_0.5s_ease-in-out] pb-10 relative">
@@ -347,11 +354,7 @@ export default function Player() {
                                   className="w-full flex items-center justify-between p-3 text-sm text-left hover:bg-gray-800 rounded-lg transition-colors text-white disabled:opacity-50 disabled:cursor-not-allowed group"
                                 >
                                   <span className="truncate pr-3 font-medium">{pl.name}</span>
-                                  {isAdded ? (
-                                    <Check className="w-4 h-4 text-green-500 shrink-0" />
-                                  ) : (
-                                    <Plus className="w-4 h-4 text-gray-600 group-hover:text-white shrink-0 transition-colors" />
-                                  )}
+                                  {isAdded ? <Check className="w-4 h-4 text-green-500 shrink-0" /> : <Plus className="w-4 h-4 text-gray-600 group-hover:text-white shrink-0 transition-colors" />}
                                 </button>
                               );
                             })}
@@ -425,46 +428,91 @@ export default function Player() {
                 </button>
               </div>
 
-              {/* Episode selector logic */}
               {activeMedia === 'movie' && movie.mediaType === 'tv' && (
-                <div className="mb-8 p-5 bg-[#121212]/80 backdrop-blur-xl border border-white/10 rounded-2xl flex flex-col md:flex-row gap-4">
-                  <div className="flex-1 space-y-3">
-                    <label className="text-[11px] uppercase font-black text-gray-400 flex items-center"><List className="w-3.5 h-3.5 mr-2" /> Season</label>
-                    <select value={season} onChange={handleSeasonChange} className="w-full bg-black/40 border border-white/10 text-white rounded-xl py-3 px-4 focus:ring-red-600">
-                      {movie.seasons?.map(s => <option key={s.id} value={s.season_number}>{s.name} ({s.episode_count} Eps)</option>)}
-                    </select>
+                <div className="mb-8 p-5 bg-[#121212]/80 backdrop-blur-xl border border-white/10 rounded-2xl flex flex-col md:flex-row gap-4 relative">
+                  
+                  {/* CUSTOM SEASON DROPDOWN */}
+                  <div className="flex-1 space-y-3 relative z-10" ref={seasonDropdownRef}>
+                    <label className="text-[11px] uppercase font-black text-gray-400 flex items-center tracking-widest pl-1">
+                      <List className="w-3.5 h-3.5 mr-2 text-red-500" /> Season
+                    </label>
+                    <button 
+                      onClick={() => setIsSeasonDropdownOpen(!isSeasonDropdownOpen)}
+                      className="w-full flex items-center justify-between bg-black/60 hover:bg-black/80 border border-white/10 text-white rounded-xl py-3 px-4 transition-all focus:outline-none focus:border-red-600/50 shadow-inner group"
+                    >
+                      <span className="font-bold text-sm truncate pr-4">
+                        {currentSeasonData ? `${currentSeasonData.name} (${currentSeasonData.episode_count} Eps)` : 'Select Season'}
+                      </span>
+                      <ChevronDown className={`w-4 h-4 text-gray-400 group-hover:text-white transition-transform duration-300 shrink-0 ${isSeasonDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    <AnimatePresence>
+                      {isSeasonDropdownOpen && (
+                        <motion.div 
+                          initial={{ opacity: 0, y: -10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -10 }}
+                          transition={{ duration: 0.2 }}
+                          className="absolute top-[80px] left-0 right-0 bg-[#121212]/95 backdrop-blur-2xl border border-gray-700 rounded-xl shadow-[0_20px_50px_rgba(0,0,0,0.8)] z-50 overflow-hidden"
+                        >
+                          <div className="max-h-60 overflow-y-auto custom-scrollbar p-2 space-y-1">
+                            {movie.seasons?.map(s => (
+                              <button 
+                                key={s.id} 
+                                onClick={() => {
+                                  handleSeasonChange(s.season_number);
+                                  setIsSeasonDropdownOpen(false);
+                                }}
+                                className={`w-full text-left px-4 py-3 text-sm rounded-lg transition-colors flex items-center justify-between ${
+                                  season === s.season_number 
+                                    ? 'bg-red-600/20 text-red-500 font-bold border border-red-500/20' 
+                                    : 'text-gray-300 hover:bg-white/5 hover:text-white'
+                                }`}
+                              >
+                                <span className="truncate">{s.name}</span>
+                                <span className={`text-[10px] uppercase font-bold tracking-wider ${season === s.season_number ? 'text-red-500/70' : 'text-gray-500'}`}>
+                                  {s.episode_count} Eps
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
-                  <div className="w-full md:w-48 space-y-3">
-                    <label className="text-[11px] uppercase font-black text-gray-400 flex items-center"><PlayCircle className="w-3.5 h-3.5 mr-2" /> Episode</label>
+
+                  <div className="w-full md:w-48 space-y-3 relative z-0">
+                    <label className="text-[11px] uppercase font-black text-gray-400 flex items-center tracking-widest pl-1">
+                      <PlayCircle className="w-3.5 h-3.5 mr-2 text-red-500" /> Episode
+                    </label>
                     <div className="flex items-center relative">
-                      <button onClick={() => setEpisode(prev => Math.max(1, prev - 1))} className="absolute left-1 bg-white/5 p-2 rounded-lg">-</button>
-                      <input type="number" value={episode} readOnly className="w-full bg-black/40 border border-white/10 text-white rounded-xl py-3 text-center" />
-                      <button onClick={() => setEpisode(prev => Math.min(maxEpisodes, prev + 1))} className="absolute right-1 bg-white/5 p-2 rounded-lg">+</button>
+                      <button onClick={() => setEpisode(prev => Math.max(1, prev - 1))} className="absolute left-1.5 w-8 h-8 flex justify-center items-center bg-white/5 hover:bg-red-600 text-white rounded-lg transition-colors">-</button>
+                      <input type="number" value={episode} readOnly className="w-full bg-black/60 border border-white/10 text-white rounded-xl py-3 px-12 text-center font-bold text-sm shadow-inner" />
+                      <button onClick={() => setEpisode(prev => Math.min(maxEpisodes, prev + 1))} className="absolute right-1.5 w-8 h-8 flex justify-center items-center bg-white/5 hover:bg-red-600 text-white rounded-lg transition-colors">+</button>
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* PLAYER IFRAME LOGIC */}
               <div className="bg-black rounded-2xl overflow-hidden shadow-2xl border border-gray-800 ring-4 ring-gray-900">
                 {activeMedia === 'movie' ? (
-                  <iframe className="w-full aspect-video outline-none" src={getEmbedUrl()} frameBorder="0" allowFullScreen></iframe>
-                ) : movie?.trailerKey ? (
                   <iframe 
+                    key={getEmbedUrl()} 
                     className="w-full aspect-video outline-none" 
-                    src={`https://www.youtube.com/embed/${movie.trailerKey}?autoplay=1&loop=1&playlist=${movie.trailerKey}&rel=0`} 
-                    title="Trailer" 
+                    src={getEmbedUrl()} 
                     frameBorder="0" 
                     allowFullScreen
                   ></iframe>
                 ) : (
-                  <div className="w-full aspect-video flex flex-col items-center justify-center bg-gray-900 text-gray-500">
-                    <Clapperboard className="w-12 h-12 mb-2 opacity-50" />
-                    <p>Sorry, the official trailer is not available for this title.</p>
-                  </div>
+                  <iframe 
+                    key={movie.trailerKey} 
+                    className="w-full aspect-video outline-none" 
+                    src={`https://www.youtube.com/embed/${movie.trailerKey}?autoplay=1&rel=0&loop=1&playlist=${movie.trailerKey}`} 
+                    frameBorder="0" 
+                    allowFullScreen
+                  ></iframe>
                 )}
               </div>
-              
             </div>
           )}
         </div>
