@@ -4,7 +4,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "dev": "nodemon index.js",
+    "dev": "nodemon index.js", 
     "seed": "node seed.js",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push"

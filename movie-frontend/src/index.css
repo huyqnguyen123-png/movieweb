@@ -15,3 +15,12 @@ h1, h2, h3, h4, h5, h6, p, span, a {
 #root {
   background-color: #000000 !important;
 }
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover, 
+input:-webkit-autofill:focus, 
+input:-webkit-autofill:active {
+    -webkit-box-shadow: 0 0 0 30px #0a0a0a inset !important; 
+    -webkit-text-fill-color: #ffffff !important; 
+    transition: background-color 5000s ease-in-out 0s;
+}

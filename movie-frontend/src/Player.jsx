@@ -66,8 +66,11 @@ export default function Player() {
   const [toast, setToast] = useState({ show: false, message: "" });
 
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+  
+  // Get current user
+  const storedUser = localStorage.getItem('currentUser');
+  const currentUser = storedUser ? JSON.parse(storedUser) : null;
 
-  // Helper to show toast messages
   const showToast = (msg) => {
     setToast({ show: true, message: msg });
     setTimeout(() => setToast({ show: false, message: "" }), 3000);
@@ -93,20 +96,35 @@ export default function Player() {
           setMaxEpisodes(firstSeason.episode_count || 1);
         }
 
-        // Check Watch Later status
-        const watchLaterList = JSON.parse(localStorage.getItem('movix_watch_later')) || [];
-        setIsInWatchLater(watchLaterList.some(item => item.id === data.id));
+        // BACKEND INTEGRATION: SAVE HISTORY & GET STATUS 
+        if (currentUser) {
+          // Save to Watch History
+          fetch(`${API_URL}/api/user/history`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userId: currentUser.id,
+              tmdbId: data.id.toString(), 
+              title: data.title || data.name,
+              posterPath: data.posterPath,
+              mediaType: data.mediaType || mediaType
+            })
+          }).catch(console.error);
 
-        // Save to Recently Watched
-        let recent = JSON.parse(localStorage.getItem('movix_recent')) || [];
-        const recentItem = { 
-          id: data.id, 
-          title: data.title, 
-          posterPath: data.posterPath, 
-          mediaType: data.mediaType || mediaType 
-        };
-        recent = [recentItem, ...recent.filter(item => item.id !== data.id)].slice(0, 20);
-        localStorage.setItem('movix_recent', JSON.stringify(recent));
+          // Check if this movie is already in Watch Later
+          fetch(`${API_URL}/api/user/${currentUser.id}/watch-later`)
+            .then(r => r.json())
+            .then(list => {
+              setIsInWatchLater(list.some(item => item.tmdbId === data.id.toString()));
+            })
+            .catch(console.error);
+            
+          // Fetch User's Playlists
+          fetch(`${API_URL}/api/user/${currentUser.id}/playlists`)
+            .then(r => r.json())
+            .then(list => setCustomPlaylists(list))
+            .catch(console.error);
+        }
 
         setIsLoading(false);
       })
@@ -118,9 +136,6 @@ export default function Player() {
   }, [id, mediaType, API_URL]);
 
   useEffect(() => {
-    const playlists = JSON.parse(localStorage.getItem('movix_playlists')) || [];
-    setCustomPlaylists(playlists);
-
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
         setShowPlaylistDropdown(false);
@@ -131,53 +146,83 @@ export default function Player() {
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [showPlaylistDropdown, isSeasonDropdownOpen]);
+  }, []);
 
-  const handleToggleWatchLater = () => {
+  // API: Handle Watch Later button 
+  const handleToggleWatchLater = async () => {
     if (!movie) return;
-    let watchLaterList = JSON.parse(localStorage.getItem('movix_watch_later')) || [];
     
-    if (isInWatchLater) {
-      watchLaterList = watchLaterList.filter(item => item.id !== movie.id);
-      setIsInWatchLater(false);
-      setBookmarkAnimState("unselected"); 
-      showToast("Removed from Watch Later"); 
-    } else {
-      watchLaterList.unshift({
-        id: movie.id,
-        title: movie.title,
-        posterPath: movie.posterPath,
-        mediaType: movie.mediaType || mediaType
-      });
-      setIsInWatchLater(true);
-      setBookmarkAnimState("selected");
-      showToast("Added to Watch Later"); 
+    if (!currentUser) {
+      showToast("Please log in to save movies!");
+      return;
     }
-    localStorage.setItem('movix_watch_later', JSON.stringify(watchLaterList));
+
+    try {
+      const res = await fetch(`${API_URL}/api/user/watch-later`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: currentUser.id,
+          tmdbId: movie.id.toString(),
+          title: movie.title || movie.name,
+          posterPath: movie.posterPath,
+          mediaType: movie.mediaType || mediaType
+        })
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        setIsInWatchLater(data.isAdded);
+        setBookmarkAnimState(data.isAdded ? "selected" : "unselected");
+        showToast(data.message);
+      }
+    } catch (err) {
+      console.error(err);
+      showToast("Server connection error");
+    }
+    
     setTimeout(() => setBookmarkAnimState("idle"), 500); 
   };
 
-  const handleAddToCustomPlaylist = (playlistId) => {
+  // API: Handle Add to Playlist
+  const handleAddToCustomPlaylist = async (playlistId) => {
     if (!movie) return;
-    let playlists = JSON.parse(localStorage.getItem('movix_playlists')) || [];
-    const playlistIndex = playlists.findIndex(pl => pl.id === playlistId);
-    
-    if (playlistIndex > -1) {
-      if (!playlists[playlistIndex].items) playlists[playlistIndex].items = [];
-      const exists = playlists[playlistIndex].items.some(item => item.id === movie.id);
-      if (!exists) {
-        playlists[playlistIndex].items.unshift({
-          id: movie.id,
-          title: movie.title,
+
+    if (!currentUser) {
+      showToast("Please log in to use the playlist!");
+      setShowPlaylistDropdown(false);
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_URL}/api/user/playlists/${playlistId}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tmdbId: movie.id.toString(),
+          title: movie.title || movie.name,
           posterPath: movie.posterPath,
           mediaType: movie.mediaType || mediaType
-        });
-        playlists[playlistIndex].itemCount = playlists[playlistIndex].items.length;
-        localStorage.setItem('movix_playlists', JSON.stringify(playlists));
-        setCustomPlaylists(playlists);
-        showToast(`Added to ${playlists[playlistIndex].name}`); 
+        })
+      });
+      
+      if (res.ok) {
+        showToast("Added to playlist successfully!");
+        setCustomPlaylists(prev => prev.map(pl => {
+          if (pl.id === playlistId) {
+            return { ...pl, items: [...(pl.items || []), { tmdbId: movie.id.toString() }] };
+          }
+          return pl;
+        }));
+      } else {
+        const errData = await res.json();
+        showToast(errData.message || "This movie is already in the playlist.");
       }
+    } catch (err) {
+      console.error(err);
+      showToast("Server connection error");
     }
+    
     setShowPlaylistDropdown(false); 
   };
 
@@ -225,7 +270,6 @@ export default function Player() {
     return `https://vidsrc.xyz/embed/movie?tmdb=${id}`;
   };
 
-  // Clean and simple Back logic 
   const handleBack = () => {
     if (window.history.length > 1) {
       navigate(-1); 
@@ -345,7 +389,7 @@ export default function Player() {
                         ) : (
                           <div className="p-2 space-y-1">
                             {customPlaylists.map(pl => {
-                              const isAdded = pl.items?.some(item => item.id === movie.id);
+                              const isAdded = pl.items?.some(item => item.tmdbId === movie.id.toString());
                               return (
                                 <button
                                   key={pl.id}
@@ -371,13 +415,13 @@ export default function Player() {
 
         <div className="lg:col-span-2 space-y-8">
           <div>
-            <h1 className="text-4xl md:text-5xl font-black mb-4 text-white drop-shadow-md">{movie.title}</h1>
+            <h1 className="text-4xl md:text-5xl font-black mb-4 text-white drop-shadow-md">{movie.title || movie.name}</h1>
             <div className="flex flex-wrap items-center gap-6 text-sm text-gray-300 font-medium">
               <span className="flex items-center bg-gray-800 px-3 py-1 rounded-full text-yellow-400 border border-gray-700">
                 <Star className="w-4 h-4 mr-1 fill-current" /> {movie.voteAverage?.toFixed(1)} Rating
               </span>
               <span className="flex items-center">
-                <Calendar className="w-4 h-4 mr-2" /> Release: {formatDate(movie.releaseDate)}
+                <Calendar className="w-4 h-4 mr-2" /> Release: {formatDate(movie.releaseDate || movie.first_air_date)}
               </span>
             </div>
           </div>

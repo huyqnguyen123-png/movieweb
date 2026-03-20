@@ -3,66 +3,94 @@ import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Trash2, Play, Star, LayoutGrid } from 'lucide-react';
 import { motion } from 'framer-motion';
+import MovieLoader from './MovieLoader';
 
 export default function PlaylistDetail() {
   const { type, id } = useParams(); 
   const navigate = useNavigate();
   const [listInfo, setListInfo] = useState({ name: '', items: [] });
+  const [isLoading, setIsLoading] = useState(true);
+
+  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+  const storedUser = localStorage.getItem('currentUser');
+  const currentUserId = storedUser ? JSON.parse(storedUser).id : null;
 
   useEffect(() => {
     window.scrollTo(0, 0);
-    loadData();
-  }, [type, id]);
-
-  const loadData = () => {
-    let name = '';
-    let items = [];
-
-    // Check standard types
-    if (type === 'recent') {
-      name = 'Recently Watched';
-      items = JSON.parse(localStorage.getItem('movix_recent')) || [];
-    } else if (type === 'watch-later') {
-      name = 'Watch Later';
-      items = JSON.parse(localStorage.getItem('movix_watch_later')) || [];
-    } else if (id) { 
-      const playlists = JSON.parse(localStorage.getItem('movix_playlists')) || [];
-      const currentPL = playlists.find(pl => pl.id === id);
-      if (currentPL) {
-        name = currentPL.name;
-        items = currentPL.items || [];
-      }
+    
+    if (!currentUserId) {
+      navigate('/auth?mode=login');
+      return;
     }
 
-    setListInfo({ name, items });
-  };
+    const loadData = async () => {
+      setIsLoading(true);
+      let name = '';
+      let items = [];
 
-  const removeItem = (e, movieId) => {
+      try {
+        if (type === 'recent') {
+          name = 'Recently Watched';
+          const res = await fetch(`${API_URL}/api/user/${currentUserId}/history`);
+          if (res.ok) items = await res.json();
+        } else if (type === 'watch-later') {
+          name = 'Watch Later';
+          const res = await fetch(`${API_URL}/api/user/${currentUserId}/watch-later`);
+          if (res.ok) items = await res.json();
+        } else if (id) { 
+          const res = await fetch(`${API_URL}/api/playlists/${id}`);
+          if (res.ok) {
+            const playlistData = await res.json();
+            name = playlistData.name;
+            items = playlistData.items || [];
+          }
+        }
+      } catch (error) {
+        console.error("Error loading playlist data:", error);
+      }
+
+      setListInfo({ name, items });
+      setIsLoading(false);
+    };
+
+    loadData();
+    
+  }, [type, id, navigate, currentUserId, API_URL]);
+
+  const removeItem = async (e, dbItemId, tmdbId) => {
     e.preventDefault();
     e.stopPropagation();
     
-    let storageKey = '';
-    if (type === 'recent') storageKey = 'movix_recent';
-    else if (type === 'watch-later') storageKey = 'movix_watch_later';
-    
-    if (storageKey) {
-      const current = JSON.parse(localStorage.getItem(storageKey)) || [];
-      const updated = current.filter(m => m.id !== movieId);
-      localStorage.setItem(storageKey, JSON.stringify(updated));
-    } else if (id) { 
-      const playlists = JSON.parse(localStorage.getItem('movix_playlists')) || [];
-      const updatedPLs = playlists.map(pl => {
-        if (pl.id === id) {
-          const newItems = (pl.items || []).filter(m => m.id !== movieId);
-          return { ...pl, items: newItems, itemCount: newItems.length };
-        }
-        return pl;
-      });
-      localStorage.setItem('movix_playlists', JSON.stringify(updatedPLs));
+    if (!currentUserId) return;
+
+    try {
+      if (type === 'recent') {
+      } else if (type === 'watch-later') {
+        await fetch(`${API_URL}/api/user/watch-later`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: currentUserId, tmdbId })
+        });
+      } else if (id) { 
+        console.warn("Delete specific item from custom playlist requires a dedicated API endpoint.");
+      }
+      
+      setListInfo(prev => ({
+        ...prev,
+        items: prev.items.filter(item => item.id !== dbItemId)
+      }));
+    } catch (error) {
+      console.error("Error removing item:", error);
     }
-    
-    loadData(); 
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[70vh]">
+        <MovieLoader size="xl" text={true} className="text-red-600" />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-6 pt-12 pb-20 min-h-screen animate-[fadeIn_0.4s_ease-out]">
@@ -112,7 +140,7 @@ export default function PlaylistDetail() {
               key={movie.id} 
               className="group relative"
             >
-              <Link to={`/watch/${movie.id}?type=${movie.mediaType}`} className="block aspect-[2/3] rounded-2xl overflow-hidden bg-gray-900 shadow-2xl relative border border-white/5 group-hover:border-red-600/50 transition-colors duration-300">
+              <Link to={`/watch/${movie.tmdbId}?type=${movie.mediaType}`} className="block aspect-[2/3] rounded-2xl overflow-hidden bg-gray-900 shadow-2xl relative border border-white/5 group-hover:border-red-600/50 transition-colors duration-300">
                 <img 
                   src={movie.posterPath} 
                   alt={movie.title} 
@@ -129,7 +157,7 @@ export default function PlaylistDetail() {
                 
                 {/* Delete button */}
                 <button 
-                  onClick={(e) => removeItem(e, movie.id)}
+                  onClick={(e) => removeItem(e, movie.id, movie.tmdbId)}
                   className="absolute top-3 right-3 p-2.5 bg-black/60 backdrop-blur-xl text-gray-400 hover:text-red-500 rounded-xl opacity-0 group-hover:opacity-100 transition-all z-20 border border-white/10 hover:border-red-500/50 hover:scale-110 active:scale-90"
                 >
                   <Trash2 size={16} />

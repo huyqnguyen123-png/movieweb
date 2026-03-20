@@ -1,7 +1,7 @@
 // movie-frontend/src/Auth.jsx
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, ArrowLeft, ChevronDown, Search } from 'lucide-react';
+import { Eye, EyeOff, ArrowLeft, ChevronDown, Search, AlertCircle, CheckCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const COUNTRIES = [
@@ -108,6 +108,14 @@ export default function Auth() {
   const phoneInputRef = useRef(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Custom Popup State 
+  const [popup, setPopup] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    isSuccess: false
+  });
+
   // Consolidated form state
   const [formData, setFormData] = useState({
     firstName: '',
@@ -153,14 +161,6 @@ export default function Auth() {
     });
     setIsCountryOpen(false);
     setCountrySearch('');
-    
-    if (phoneInputRef.current) {
-      setTimeout(() => {
-        phoneInputRef.current.focus();
-        const length = phoneInputRef.current.value.length;
-        phoneInputRef.current.setSelectionRange(length, length);
-      }, 50);
-    }
   };
 
   const handleSubmit = async (e) => {
@@ -168,11 +168,11 @@ export default function Auth() {
 
     if (mode === 'signup') {
       if (formData.password !== formData.confirmPassword) {
-        alert("Passwords do not match!");
+        setPopup({ isOpen: true, title: "Password Mismatch", message: "Passwords do not match!", isSuccess: false });
         return;
       }
       if (!formData.country) {
-        alert("Please select a country/region");
+        setPopup({ isOpen: true, title: "Missing Info", message: "Please select a country/region", isSuccess: false });
         return;
       }
     }
@@ -193,13 +193,13 @@ export default function Auth() {
       const data = await response.json();
 
       if (!response.ok) {
-        alert(data.message || "An error occurred");
+        setPopup({ isOpen: true, title: "Error", message: data.message || "An error occurred", isSuccess: false });
         return; 
       }
 
       // SUCCESS HANDLING 
       if (mode === 'signup') {
-        alert("Signup successful! You can now log in.");
+        setPopup({ isOpen: true, title: "Welcome!", message: "Signup successful! You can now log in.", isSuccess: true });
         setMode('login');
         setFormData(prev => ({
           ...prev,
@@ -213,9 +213,8 @@ export default function Auth() {
 
     } catch (error) {
       console.error("Authentication Error:", error);
-      alert("Failed to connect to the server. Please ensure the backend is running.");
+      setPopup({ isOpen: true, title: "Connection Failed", message: "Failed to connect to the server. Please ensure the backend is running.", isSuccess: false });
     } finally {
-      // Ensure loading state is reset
       setIsLoading(false);
     }
   };
@@ -228,6 +227,40 @@ export default function Auth() {
 
   return (
     <div className="min-h-[85vh] flex items-center justify-center px-4 py-12">
+      
+      {/* POPUP MODAL */}
+      <AnimatePresence>
+        {popup.isOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4"
+            onClick={() => setPopup({ ...popup, isOpen: false })}
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 20 }}
+              onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside modal
+              className="w-full max-w-sm bg-[#1a1a1a] border border-white/10 rounded-3xl p-6 sm:p-8 shadow-[0_20px_50px_rgba(0,0,0,0.8)] text-center relative"
+            >
+              <div className={`mx-auto w-16 h-16 rounded-full flex items-center justify-center mb-5 ${popup.isSuccess ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
+                 {popup.isSuccess ? <CheckCircle className="w-8 h-8" /> : <AlertCircle className="w-8 h-8" />}
+              </div>
+              <h3 className="text-xl sm:text-2xl font-black text-white mb-2">{popup.title}</h3>
+              <p className="text-gray-400 text-sm mb-8 leading-relaxed">{popup.message}</p>
+              <button
+                onClick={() => setPopup({ ...popup, isOpen: false })}
+                className={`w-full py-3.5 rounded-xl font-bold text-white transition-all active:scale-95 ${popup.isSuccess ? 'bg-green-600 hover:bg-green-500 shadow-[0_0_20px_rgba(34,197,94,0.3)]' : 'bg-red-600 hover:bg-red-500 shadow-[0_0_20px_rgba(220,38,38,0.3)]'}`}
+              >
+                Got it
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -318,7 +351,7 @@ export default function Auth() {
                     />
                     <label 
                       htmlFor="lastName"
-                      className="absolute left-4 -top-2.5 bg-[#121212] px-1 text-[11px] font-bold text-gray-500 transition-all peer-placeholder-shown:top-4 peer-placeholder-shown:text-sm peer-placeholder-shown:bg-transparent peer-focus:-top-2.5 peer-focus:text-[11px] peer-focus:bg-[#121212] peer-focus:text-red-500 cursor-text pointer-events-none z-10"
+                      className="absolute left-4 -top-2.5 bg-[#121212] px-1 text-[11px] font-bold text-gray-500 transition-all peer-placeholder-shown:top-4 peer-placeholder-shown:text-sm peer-placeholder-shown:bg-transparent peer-focus:-top-2.5 peer-focus:text-[11px] peer-focus:bg-[#121212] peer-focus:text-red-500 cursor-text pointer-events-none z-10 autofill-label"
                     >
                       Lastname
                     </label>
@@ -337,7 +370,7 @@ export default function Auth() {
                     />
                     <label 
                       htmlFor="firstName"
-                      className="absolute left-4 -top-2.5 bg-[#121212] px-1 text-[11px] font-bold text-gray-500 transition-all peer-placeholder-shown:top-4 peer-placeholder-shown:text-sm peer-placeholder-shown:bg-transparent peer-focus:-top-2.5 peer-focus:text-[11px] peer-focus:bg-[#121212] peer-focus:text-red-500 cursor-text pointer-events-none z-10"
+                      className="absolute left-4 -top-2.5 bg-[#121212] px-1 text-[11px] font-bold text-gray-500 transition-all peer-placeholder-shown:top-4 peer-placeholder-shown:text-sm peer-placeholder-shown:bg-transparent peer-focus:-top-2.5 peer-focus:text-[11px] peer-focus:bg-[#121212] peer-focus:text-red-500 cursor-text pointer-events-none z-10 autofill-label"
                     >
                       Firstname
                     </label>
@@ -392,6 +425,9 @@ export default function Auth() {
                             placeholder="Search country or code..."
                             value={countrySearch}
                             onChange={(e) => setCountrySearch(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') e.preventDefault(); 
+                            }}
                             className="w-full bg-transparent text-white text-sm py-2 pl-8 pr-2 focus:outline-none placeholder:text-gray-600"
                           />
                         </div>
@@ -441,7 +477,7 @@ export default function Auth() {
                   />
                   <label 
                     htmlFor="phone"
-                    className="absolute left-4 -top-2.5 bg-[#121212] px-1 text-[11px] font-bold text-gray-500 transition-all peer-placeholder-shown:top-4 peer-placeholder-shown:text-sm peer-placeholder-shown:bg-transparent peer-focus:-top-2.5 peer-focus:text-[11px] peer-focus:bg-[#121212] peer-focus:text-red-500 cursor-text pointer-events-none z-10"
+                    className="absolute left-4 -top-2.5 bg-[#121212] px-1 text-[11px] font-bold text-gray-500 transition-all peer-placeholder-shown:top-4 peer-placeholder-shown:text-sm peer-placeholder-shown:bg-transparent peer-focus:-top-2.5 peer-focus:text-[11px] peer-focus:bg-[#121212] peer-focus:text-red-500 cursor-text pointer-events-none z-10 autofill-label"
                   >
                     Phone number
                   </label>
@@ -464,7 +500,7 @@ export default function Auth() {
             />
             <label 
               htmlFor="email"
-              className="absolute left-4 -top-2.5 bg-[#121212] px-1 text-[11px] font-bold text-gray-500 transition-all peer-placeholder-shown:top-4 peer-placeholder-shown:text-sm peer-placeholder-shown:bg-transparent peer-focus:-top-2.5 peer-focus:text-[11px] peer-focus:bg-[#121212] peer-focus:text-red-500 cursor-text pointer-events-none z-10"
+              className="absolute left-4 -top-2.5 bg-[#121212] px-1 text-[11px] font-bold text-gray-500 transition-all peer-placeholder-shown:top-4 peer-placeholder-shown:text-sm peer-placeholder-shown:bg-transparent peer-focus:-top-2.5 peer-focus:text-[11px] peer-focus:bg-[#121212] peer-focus:text-red-500 cursor-text pointer-events-none z-10 autofill-label"
             >
               Email
             </label>
@@ -484,7 +520,7 @@ export default function Auth() {
             />
             <label 
               htmlFor="password"
-              className="absolute left-4 -top-2.5 bg-[#121212] px-1 text-[11px] font-bold text-gray-500 transition-all peer-placeholder-shown:top-4 peer-placeholder-shown:text-sm peer-placeholder-shown:bg-transparent peer-focus:-top-2.5 peer-focus:text-[11px] peer-focus:bg-[#121212] peer-focus:text-red-500 cursor-text pointer-events-none z-10"
+              className="absolute left-4 -top-2.5 bg-[#121212] px-1 text-[11px] font-bold text-gray-500 transition-all peer-placeholder-shown:top-4 peer-placeholder-shown:text-sm peer-placeholder-shown:bg-transparent peer-focus:-top-2.5 peer-focus:text-[11px] peer-focus:bg-[#121212] peer-focus:text-red-500 cursor-text pointer-events-none z-10 autofill-label"
             >
               Password
             </label>
@@ -519,7 +555,7 @@ export default function Auth() {
                   />
                   <label 
                     htmlFor="confirmPassword"
-                    className="absolute left-4 -top-2.5 bg-[#121212] px-1 text-[11px] font-bold text-gray-500 transition-all peer-placeholder-shown:top-4 peer-placeholder-shown:text-sm peer-placeholder-shown:bg-transparent peer-focus:-top-2.5 peer-focus:text-[11px] peer-focus:bg-[#121212] peer-focus:text-red-500 cursor-text pointer-events-none z-10"
+                    className="absolute left-4 -top-2.5 bg-[#121212] px-1 text-[11px] font-bold text-gray-500 transition-all peer-placeholder-shown:top-4 peer-placeholder-shown:text-sm peer-placeholder-shown:bg-transparent peer-focus:-top-2.5 peer-focus:text-[11px] peer-focus:bg-[#121212] peer-focus:text-red-500 cursor-text pointer-events-none z-10 autofill-label"
                   >
                     Confirm password
                   </label>
@@ -562,10 +598,7 @@ export default function Auth() {
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 10px; }
         
-        /* * FIX BROWSER AUTOFILL FOR DARK MODE
-         * This forces the browser autofill background to match the form's dark background (#121212)
-         * and ensures the text stays white.
-         */
+        /* FIX BROWSER AUTOFILL FOR DARK MODE */
         input:-webkit-autofill,
         input:-webkit-autofill:hover, 
         input:-webkit-autofill:focus, 
@@ -573,7 +606,14 @@ export default function Auth() {
             -webkit-box-shadow: 0 0 0 40px #121212 inset !important;
             -webkit-text-fill-color: white !important;
             caret-color: white !important;
-            border-radius: 0.75rem; /* Matches rounded-xl */
+            border-radius: 0.75rem; 
+        }
+
+        /* FIX FLOATING LABEL OVERLAP ON AUTOFILL */
+        input:-webkit-autofill ~ .autofill-label {
+            top: -0.625rem !important; 
+            font-size: 11px !important; 
+            background-color: #121212 !important; 
         }
       `}</style>
     </div>
