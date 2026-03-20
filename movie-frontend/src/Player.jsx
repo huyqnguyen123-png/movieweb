@@ -4,7 +4,8 @@ import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'; 
 import { 
   ArrowLeft, PlayCircle, Star, Calendar, Clapperboard, 
-  Users, X, User, List, Bookmark, BookmarkCheck, Plus, Check, ChevronDown 
+  Users, X, User, List, Bookmark, BookmarkCheck, Plus, Check, ChevronDown,
+  SkipForward, SkipBack 
 } from 'lucide-react';
 import MovieLoader from './MovieLoader';
 
@@ -268,6 +269,7 @@ export default function Player() {
   };
 
   const handleEpisodeChange = (newEp) => {
+    if (newEp < 1 || newEp > maxEpisodes) return;
     setEpisode(newEp);
     saveHistoryProgress(movie, season, newEp);
   };
@@ -515,7 +517,7 @@ export default function Player() {
               </div>
 
               {activeMedia === 'movie' && movie.mediaType === 'tv' && (
-                <div className="mb-8 p-5 bg-[#121212]/80 backdrop-blur-xl border border-white/10 rounded-2xl flex flex-col md:flex-row gap-4 relative">
+                <div className="mb-6 p-5 bg-[#121212]/80 backdrop-blur-xl border border-white/10 rounded-2xl flex flex-col md:flex-row gap-4 relative">
                   
                   {/* CUSTOM SEASON DROPDOWN */}
                   <div className="flex-1 space-y-3 relative z-10" ref={seasonDropdownRef}>
@@ -569,7 +571,7 @@ export default function Player() {
 
                   <div className="w-full md:w-48 space-y-3 relative z-0">
                     <label className="text-[11px] uppercase font-black text-gray-400 flex items-center tracking-widest pl-1">
-                      <PlayCircle className="w-3.5 h-3.5 mr-2 text-red-500" /> Episode
+                      <PlayCircle className="w-3.5 h-3.5 mr-2 text-red-500" /> Episode Selection
                     </label>
                     <div className="flex items-center relative">
                       <button onClick={() => handleEpisodeChange(Math.max(1, episode - 1))} className="absolute left-1.5 w-8 h-8 flex justify-center items-center bg-white/5 hover:bg-red-600 text-white rounded-lg transition-colors">-</button>
@@ -577,6 +579,34 @@ export default function Player() {
                       <button onClick={() => handleEpisodeChange(Math.min(maxEpisodes, episode + 1))} className="absolute right-1.5 w-8 h-8 flex justify-center items-center bg-white/5 hover:bg-red-600 text-white rounded-lg transition-colors">+</button>
                     </div>
                   </div>
+                </div>
+              )}
+
+              {/* BINGE-WATCHING CONTROLS */}
+              {activeMedia === 'movie' && movie.mediaType === 'tv' && (
+                <div className="flex items-center justify-between bg-black/40 border border-gray-800 p-4 mb-4 rounded-xl shadow-inner">
+                  <button 
+                    onClick={() => handleEpisodeChange(episode - 1)}
+                    disabled={episode <= 1}
+                    className="flex items-center px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white text-sm font-bold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed group"
+                  >
+                    <SkipBack className="w-4 h-4 mr-2 group-hover:-translate-x-1 transition-transform" />
+                    Prev Ep
+                  </button>
+                  
+                  <div className="text-center">
+                    <span className="text-gray-400 text-xs font-bold uppercase tracking-widest block">Currently Playing</span>
+                    <span className="text-white font-black text-sm">Season {season} - Episode {episode}</span>
+                  </div>
+
+                  <button 
+                    onClick={() => handleEpisodeChange(episode + 1)}
+                    disabled={episode >= maxEpisodes}
+                    className="flex items-center px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-sm font-bold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed group shadow-[0_0_15px_rgba(220,38,38,0.3)]"
+                  >
+                    Next Ep
+                    <SkipForward className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
+                  </button>
                 </div>
               )}
 
