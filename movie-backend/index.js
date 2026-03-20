@@ -80,7 +80,7 @@ app.post('/api/auth/login', async (req, res) => {
 
 // USER PERSONALIZATION ROUTES
 
-// Watch History
+// Watch History 
 app.post('/api/user/history', async (req, res) => {
   try {
     const { userId, tmdbId, title, posterPath, mediaType, season, episode, stoppedAt } = req.body;
@@ -138,7 +138,7 @@ app.get('/api/user/:userId/history/:tmdbId', async (req, res) => {
   }
 });
 
-// Watch Later
+// Watch Later 
 app.post('/api/user/watch-later', async (req, res) => {
   try {
     const { userId, tmdbId, title, posterPath, mediaType } = req.body;
@@ -231,7 +231,6 @@ app.post('/api/user/playlists/:playlistId/items', async (req, res) => {
   }
 });
 
-// Get a specific playlist by ID with its items
 app.get('/api/playlists/:id', async (req, res) => {
   try {
     const playlist = await prisma.playlist.findUnique({
@@ -383,6 +382,7 @@ app.get('/api/movies/search', async (req, res) => {
   }
 });
 
+// Get movie/tv details
 app.get('/api/movies/:id', async (req, res) => {
   try {
     const paramId = req.params.id;
@@ -448,6 +448,35 @@ app.get('/api/movies/:id', async (req, res) => {
   } catch (error) {
     console.error("Details API Error:", error.message);
     res.status(404).json({ error: 'Content not found' });
+  }
+});
+
+// Get movie recommendations
+app.get('/api/movies/:id/recommendations', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const type = req.query.type || 'movie';
+    const response = await axios.get(
+      `https://api.themoviedb.org/3/${type}/${id}/recommendations?language=en-US&page=1`,
+      { headers: { Authorization: process.env.TMDB_TOKEN } }
+    );
+
+    const recommendations = response.data.results
+      .filter(isValidMovie)
+      .slice(0, 10)
+      .map(m => ({
+        id: m.id.toString(),
+        title: m.title || m.name,
+        posterPath: `https://image.tmdb.org/t/p/w500${m.poster_path}`,
+        voteAverage: m.vote_average ? parseFloat(m.vote_average.toFixed(1)) : 0,
+        releaseDate: m.release_date || m.first_air_date,
+        mediaType: type
+      }));
+
+    res.json(recommendations);
+  } catch (error) {
+    console.error("Recommendations API Error:", error.message);
+    res.status(500).json({ error: 'Failed to fetch recommendations' });
   }
 });
 

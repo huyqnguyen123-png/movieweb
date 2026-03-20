@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ArrowLeft, PlayCircle, Star, Calendar, Clapperboard, 
   Users, X, User, List, Bookmark, BookmarkCheck, Plus, Check, ChevronDown,
-  SkipForward, SkipBack 
+  SkipForward, SkipBack, Sparkles 
 } from 'lucide-react';
 import MovieLoader from './MovieLoader';
 
@@ -43,6 +43,9 @@ export default function Player() {
   const [activeMedia, setActiveMedia] = useState(null);
   const [error, setError] = useState(false);
 
+  // Recommendations State
+  const [recommendations, setRecommendations] = useState([]);
+
   // TV Series States
   const [season, setSeason] = useState(1);
   const [episode, setEpisode] = useState(1);
@@ -62,6 +65,8 @@ export default function Player() {
   const dropdownRef = useRef(null);
   const seasonDropdownRef = useRef(null); 
   const videoRef = useRef(null);
+  const scrollRef = useRef(null); 
+  const isDragging = useRef(false); 
 
   const [bookmarkAnimState, setBookmarkAnimState] = useState("idle");
   const [toast, setToast] = useState({ show: false, message: "" });
@@ -97,12 +102,13 @@ export default function Player() {
     }).catch(console.error);
   }, [API_URL, currentUserId, mediaType]);
 
-  // Initial Load: Fetch Movie Details & User Progress
+  // Initial Load: Fetch Movie Details, Progress & Recommendations
   useEffect(() => {
     window.scrollTo(0, 0);
     setIsLoading(true);
     setActiveMedia(null); 
     setError(false);
+    setRecommendations([]); 
     
     fetch(`${API_URL}/api/movies/${id}?type=${mediaType}`)
       .then(res => {
@@ -120,6 +126,12 @@ export default function Player() {
           initialSeason = firstSeason.season_number;
           setMaxEpisodes(firstSeason.episode_count || 1);
         }
+
+        // Fetch Recommendations
+        fetch(`${API_URL}/api/movies/${data.id}/recommendations?type=${data.mediaType || mediaType}`)
+          .then(res => res.json())
+          .then(recs => setRecommendations(recs))
+          .catch(console.error);
 
         // GET SAVED PROGRESS & SAVE HISTORY
         if (currentUserId) {
@@ -181,6 +193,73 @@ export default function Player() {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // Horizontal Scroll & Drag Logic for Recommendations
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const handleWheel = (e) => {
+      if (e.deltaY === 0) return;
+      e.preventDefault();
+      el.scrollBy({
+        left: e.deltaY > 0 ? 400 : -400, 
+        behavior: 'smooth'
+      });
+    };
+
+    let isDown = false;
+    let startX;
+    let scrollLeft;
+
+    const handleMouseDown = (e) => {
+      isDown = true;
+      isDragging.current = false;
+      el.classList.add('active');
+      el.style.scrollBehavior = 'auto'; 
+      
+      startX = e.pageX - el.offsetLeft;
+      scrollLeft = el.scrollLeft;
+    };
+    
+    const handleMouseLeave = () => {
+      isDown = false;
+      el.classList.remove('active');
+    };
+    
+    const handleMouseUp = () => {
+      isDown = false;
+      el.classList.remove('active');
+      el.style.scrollBehavior = 'smooth';
+
+      setTimeout(() => {
+        isDragging.current = false;
+      }, 50);
+    };
+    
+    const handleMouseMove = (e) => {
+      if (!isDown) return;
+      e.preventDefault();
+      isDragging.current = true; 
+      const x = e.pageX - el.offsetLeft;
+      const walk = (x - startX) * 1.5; 
+      el.scrollLeft = scrollLeft - walk;
+    };
+
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    el.addEventListener('mousedown', handleMouseDown);
+    el.addEventListener('mouseleave', handleMouseLeave);
+    el.addEventListener('mouseup', handleMouseUp);
+    el.addEventListener('mousemove', handleMouseMove);
+
+    return () => {
+      el.removeEventListener('wheel', handleWheel);
+      el.removeEventListener('mousedown', handleMouseDown);
+      el.removeEventListener('mouseleave', handleMouseLeave);
+      el.removeEventListener('mouseup', handleMouseUp);
+      el.removeEventListener('mousemove', handleMouseMove);
+    };
+  }, [recommendations]);
 
   const handleToggleWatchLater = async () => {
     if (!movie) return;
@@ -500,6 +579,47 @@ export default function Player() {
               ))}
             </div>
           </div>
+
+          {/* HORIZONTAL SCROLL RECOMMENDATIONS SECTION */}
+          {recommendations.length > 0 && (
+            <div className="space-y-6 pt-4">
+              <h3 className="text-2xl font-bold text-white flex items-center border-l-4 border-red-600 pl-3">
+                <Sparkles className="w-6 h-6 mr-2 text-red-500" /> More Like This
+              </h3>
+              <div 
+                ref={scrollRef}
+                className="flex overflow-x-auto gap-4 pb-4 custom-scrollbar cursor-grab active:cursor-grabbing select-none"
+              >
+                {recommendations.map((rec) => (
+                  <Link 
+                    to={`/watch/${rec.id}?type=${rec.mediaType}`} 
+                    key={rec.id}
+                    draggable="false"
+                    onClick={(e) => {
+                      if (isDragging.current) {
+                        e.preventDefault(); 
+                      }
+                    }}
+                    className="group block relative w-36 sm:w-40 md:w-48 flex-shrink-0 aspect-[2/3] rounded-xl overflow-hidden bg-gray-900 border border-gray-800 shadow-lg hover:border-red-500 transition-colors duration-300"
+                  >
+                    <img 
+                      src={rec.posterPath} 
+                      alt={rec.title} 
+                      draggable="false"
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 pointer-events-none"
+                      loading="lazy"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-3">
+                      <h4 className="text-white text-xs font-bold truncate">{rec.title}</h4>
+                      <div className="flex items-center gap-1 mt-1 text-yellow-500 text-[10px] font-bold">
+                        <Star className="w-3 h-3 fill-current" /> {rec.voteAverage}
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
 
           {activeMedia && (
             <div ref={videoRef} className="pt-4 mt-8 border-t border-gray-800 animate-[fadeIn_0.5s_ease-in-out]">
