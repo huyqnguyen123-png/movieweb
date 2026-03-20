@@ -42,11 +42,11 @@ model PlaylistItem {
   tmdbId     String
   title      String
   posterPath String?
-  mediaType  String   @default("movie") // "movie" hoặc "tv"
+  mediaType  String   @default("movie") 
   addedAt    DateTime @default(now())
 }
 
-// WATCH HISTORY
+// WATCH HISTORY 
 model WatchHistory {
   id         String   @id @default(uuid())
   userId     String
@@ -55,6 +55,9 @@ model WatchHistory {
   title      String
   posterPath String?
   mediaType  String   @default("movie")
+  season     Int?     
+  episode    Int?     
+  stoppedAt  Int?     @default(0) 
   watchedAt  DateTime @default(now())
 }
 

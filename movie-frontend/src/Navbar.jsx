@@ -203,12 +203,26 @@ export default function Navbar() {
     navigate('/');
   };
 
-  // Get Initial 
-  const getInitial = () => {
-    if (currentUser && currentUser.firstName) {
-      return currentUser.firstName.charAt(0).toUpperCase();
+  // Render Avatar Logic
+  const renderAvatar = () => {
+    // If user is not logged in, show simple outline icon
+    if (!isLoggedIn) {
+      return <User className="w-5 h-5 text-gray-300" />;
     }
-    return <User className="w-5 h-5" />;
+
+    // Future feature: If user has uploaded a real profile picture
+    if (currentUser?.avatarUrl) {
+      return <img src={currentUser.avatarUrl} alt="User Avatar" className="w-full h-full object-cover" />;
+    }
+    
+    // Facebook-style default silhouette (Logged In)
+    return (
+      <div className="w-full h-full bg-gray-700 flex items-end justify-center">
+        <svg className="w-9 h-9 text-gray-400 -mb-1" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
+        </svg>
+      </div>
+    );
   };
 
   return (
@@ -311,13 +325,13 @@ export default function Navbar() {
           <div className="flex items-center justify-end shrink-0 z-[160] relative lg:min-w-[100px]" ref={userMenuRef}>
             <button
               onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-              className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg transition-all duration-300 focus:outline-none relative z-10 ${
-                isUserMenuOpen || isLoggedIn
-                  ? 'bg-red-600 text-white shadow-lg shadow-red-600/30' 
-                  : 'bg-white/5 hover:bg-white/10 text-gray-300'
+              className={`w-10 h-10 rounded-full overflow-hidden flex items-center justify-center transition-all duration-300 focus:outline-none relative z-10 ${
+                isUserMenuOpen
+                  ? 'ring-2 ring-red-600 shadow-lg shadow-red-600/30' 
+                  : isLoggedIn ? 'ring-2 ring-transparent hover:ring-gray-500' : 'bg-white/5 hover:bg-white/10 text-gray-300'
               }`}
             >
-               {getInitial()}
+               {renderAvatar()}
             </button>
 
             <AnimatePresence>

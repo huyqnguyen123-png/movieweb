@@ -83,7 +83,7 @@ app.post('/api/auth/login', async (req, res) => {
 // Watch History
 app.post('/api/user/history', async (req, res) => {
   try {
-    const { userId, tmdbId, title, posterPath, mediaType } = req.body;
+    const { userId, tmdbId, title, posterPath, mediaType, season, episode, stoppedAt } = req.body;
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
     const existing = await prisma.watchHistory.findFirst({
@@ -93,15 +93,21 @@ app.post('/api/user/history', async (req, res) => {
     if (existing) {
       await prisma.watchHistory.update({
         where: { id: existing.id },
-        data: { watchedAt: new Date() }
+        data: { 
+          watchedAt: new Date(),
+          season: season !== undefined ? season : existing.season,
+          episode: episode !== undefined ? episode : existing.episode,
+          stoppedAt: stoppedAt !== undefined ? stoppedAt : existing.stoppedAt
+        }
       });
     } else {
       await prisma.watchHistory.create({
-        data: { userId, tmdbId, title, posterPath, mediaType }
+        data: { userId, tmdbId, title, posterPath, mediaType, season, episode, stoppedAt }
       });
     }
     res.status(200).json({ message: 'History updated' });
   } catch (error) {
+    console.error("History Update Error:", error);
     res.status(500).json({ error: 'Failed to update history' });
   }
 });
@@ -115,6 +121,20 @@ app.get('/api/user/:userId/history', async (req, res) => {
     res.json(history);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch history' });
+  }
+});
+
+app.get('/api/user/:userId/history/:tmdbId', async (req, res) => {
+  try {
+    const progress = await prisma.watchHistory.findFirst({
+      where: { 
+        userId: req.params.userId,
+        tmdbId: req.params.tmdbId
+      }
+    });
+    res.json(progress || null);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch specific history' });
   }
 });
 

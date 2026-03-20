@@ -1,5 +1,5 @@
 // movie-frontend/src/Player.jsx
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion'; 
 import { 
@@ -67,15 +67,36 @@ export default function Player() {
 
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
   
-  // Get current user
+  // Extract primitive user ID to avoid dependency array infinite loops
   const storedUser = localStorage.getItem('currentUser');
   const currentUser = storedUser ? JSON.parse(storedUser) : null;
+  const currentUserId = currentUser ? currentUser.id : null;
 
   const showToast = (msg) => {
     setToast({ show: true, message: msg });
     setTimeout(() => setToast({ show: false, message: "" }), 3000);
   };
 
+  // Helper to save history to DB
+  const saveHistoryProgress = useCallback((movieData, currentSeason, currentEp) => {
+    if (!currentUserId || !movieData) return;
+    
+    fetch(`${API_URL}/api/user/history`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: currentUserId,
+        tmdbId: movieData.id.toString(), 
+        title: movieData.title || movieData.name,
+        posterPath: movieData.posterPath,
+        mediaType: movieData.mediaType || mediaType,
+        season: movieData.mediaType === 'tv' ? currentSeason : null,
+        episode: movieData.mediaType === 'tv' ? currentEp : null
+      })
+    }).catch(console.error);
+  }, [API_URL, currentUserId, mediaType]);
+
+  // Initial Load: Fetch Movie Details & User Progress
   useEffect(() => {
     window.scrollTo(0, 0);
     setIsLoading(true);
@@ -87,45 +108,57 @@ export default function Player() {
         if (!res.ok) throw new Error("Not found");
         return res.json();
       })
-      .then(data => {
+      .then(async (data) => {
         setMovie(data);
         
+        let initialSeason = 1;
+        let initialEpisode = 1;
+
         if (data.mediaType === 'tv' && data.seasons && data.seasons.length > 0) {
           const firstSeason = data.seasons.find(s => s.season_number === 1) || data.seasons[0];
-          setSeason(firstSeason.season_number);
+          initialSeason = firstSeason.season_number;
           setMaxEpisodes(firstSeason.episode_count || 1);
         }
 
-        // BACKEND INTEGRATION: SAVE HISTORY & GET STATUS 
-        if (currentUser) {
-          // Save to Watch History
-          fetch(`${API_URL}/api/user/history`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              userId: currentUser.id,
-              tmdbId: data.id.toString(), 
-              title: data.title || data.name,
-              posterPath: data.posterPath,
-              mediaType: data.mediaType || mediaType
-            })
-          }).catch(console.error);
+        // GET SAVED PROGRESS & SAVE HISTORY
+        if (currentUserId) {
+          try {
+            // Fetch specific movie progress
+            const progressRes = await fetch(`${API_URL}/api/user/${currentUserId}/history/${data.id}`);
+            if (progressRes.ok) {
+              const progressData = await progressRes.json();
+              if (progressData && data.mediaType === 'tv') {
+                if (progressData.season) initialSeason = progressData.season;
+                if (progressData.episode) initialEpisode = progressData.episode;
+                
+                const savedSeasonData = data.seasons.find(s => s.season_number === initialSeason);
+                if (savedSeasonData) setMaxEpisodes(savedSeasonData.episode_count || 1);
+              }
+            }
 
-          // Check if this movie is already in Watch Later
-          fetch(`${API_URL}/api/user/${currentUser.id}/watch-later`)
-            .then(r => r.json())
-            .then(list => {
+            // Save initial view
+            saveHistoryProgress(data, initialSeason, initialEpisode);
+
+            // Fetch Watch Later
+            const wlRes = await fetch(`${API_URL}/api/user/${currentUserId}/watch-later`);
+            if (wlRes.ok) {
+              const list = await wlRes.json();
               setIsInWatchLater(list.some(item => item.tmdbId === data.id.toString()));
-            })
-            .catch(console.error);
-            
-          // Fetch User's Playlists
-          fetch(`${API_URL}/api/user/${currentUser.id}/playlists`)
-            .then(r => r.json())
-            .then(list => setCustomPlaylists(list))
-            .catch(console.error);
+            }
+              
+            // Fetch Playlists
+            const plRes = await fetch(`${API_URL}/api/user/${currentUserId}/playlists`);
+            if (plRes.ok) {
+              const list = await plRes.json();
+              setCustomPlaylists(list);
+            }
+          } catch (err) {
+            console.error("Failed to fetch user data:", err);
+          }
         }
 
+        setSeason(initialSeason);
+        setEpisode(initialEpisode);
         setIsLoading(false);
       })
       .catch(err => {
@@ -133,7 +166,7 @@ export default function Player() {
         setError(true);
         setIsLoading(false);
       });
-  }, [id, mediaType, API_URL]);
+  }, [id, mediaType, API_URL, currentUserId, saveHistoryProgress]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -148,11 +181,10 @@ export default function Player() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // API: Handle Watch Later button 
   const handleToggleWatchLater = async () => {
     if (!movie) return;
     
-    if (!currentUser) {
+    if (!currentUserId) {
       showToast("Please log in to save movies!");
       return;
     }
@@ -162,7 +194,7 @@ export default function Player() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userId: currentUser.id,
+          userId: currentUserId,
           tmdbId: movie.id.toString(),
           title: movie.title || movie.name,
           posterPath: movie.posterPath,
@@ -184,11 +216,10 @@ export default function Player() {
     setTimeout(() => setBookmarkAnimState("idle"), 500); 
   };
 
-  // API: Handle Add to Playlist
   const handleAddToCustomPlaylist = async (playlistId) => {
     if (!movie) return;
 
-    if (!currentUser) {
+    if (!currentUserId) {
       showToast("Please log in to use the playlist!");
       setShowPlaylistDropdown(false);
       return;
@@ -233,6 +264,12 @@ export default function Player() {
     if (selectedSeasonData) {
       setMaxEpisodes(selectedSeasonData.episode_count || 1);
     }
+    saveHistoryProgress(movie, newSeasonNumber, 1);
+  };
+
+  const handleEpisodeChange = (newEp) => {
+    setEpisode(newEp);
+    saveHistoryProgress(movie, season, newEp);
   };
 
   const handlePersonClick = (personId) => {
@@ -393,7 +430,12 @@ export default function Player() {
                               return (
                                 <button
                                   key={pl.id}
-                                  onClick={() => handleAddToCustomPlaylist(pl.id)}
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    handleAddToCustomPlaylist(pl.id);
+                                  }}
                                   disabled={isAdded}
                                   className="w-full flex items-center justify-between p-3 text-sm text-left hover:bg-gray-800 rounded-lg transition-colors text-white disabled:opacity-50 disabled:cursor-not-allowed group"
                                 >
@@ -530,9 +572,9 @@ export default function Player() {
                       <PlayCircle className="w-3.5 h-3.5 mr-2 text-red-500" /> Episode
                     </label>
                     <div className="flex items-center relative">
-                      <button onClick={() => setEpisode(prev => Math.max(1, prev - 1))} className="absolute left-1.5 w-8 h-8 flex justify-center items-center bg-white/5 hover:bg-red-600 text-white rounded-lg transition-colors">-</button>
+                      <button onClick={() => handleEpisodeChange(Math.max(1, episode - 1))} className="absolute left-1.5 w-8 h-8 flex justify-center items-center bg-white/5 hover:bg-red-600 text-white rounded-lg transition-colors">-</button>
                       <input type="number" value={episode} readOnly className="w-full bg-black/60 border border-white/10 text-white rounded-xl py-3 px-12 text-center font-bold text-sm shadow-inner" />
-                      <button onClick={() => setEpisode(prev => Math.min(maxEpisodes, prev + 1))} className="absolute right-1.5 w-8 h-8 flex justify-center items-center bg-white/5 hover:bg-red-600 text-white rounded-lg transition-colors">+</button>
+                      <button onClick={() => handleEpisodeChange(Math.min(maxEpisodes, episode + 1))} className="absolute right-1.5 w-8 h-8 flex justify-center items-center bg-white/5 hover:bg-red-600 text-white rounded-lg transition-colors">+</button>
                     </div>
                   </div>
                 </div>
