@@ -1,10 +1,23 @@
 // prisma/schema.prisma
+
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+// ENUMS FOR NEW FEATURES
+enum Role {
+  USER
+  ADMIN
+}
+
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
 }
 
 // USER MODEL 
@@ -17,15 +30,21 @@ model User {
   country        String?
   password       String  
   profilePicture String?
-  avatarUrl      String?        // ADDED: To match Frontend payload
+  avatarUrl      String?      
+  role           Role           @default(USER) 
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
+  // Existing Relations
   playlists      Playlist[]
   history        WatchHistory[]
   watchLater     WatchLater[]
   watchParties   WatchParty[]
   reviews        Review[]
+  messages       PartyMessage[] 
+  sentRequests   Friendship[]   @relation("Requester")
+  receivedReqs   Friendship[]   @relation("Receiver")
+  notifications  Notification[]
 }
 
 // PLAYLIST MODELS
@@ -59,9 +78,10 @@ model WatchHistory {
   title      String
   posterPath String?
   mediaType  String   @default("movie")
-  season     Int?     
-  episode    Int?     
+  season     Int?      
+  episode    Int?      
   stoppedAt  Int?     @default(0) 
+  duration   Int?     @default(0) 
   watchedAt  DateTime @default(now())
 }
 
@@ -78,7 +98,7 @@ model WatchLater {
   @@unique([userId, tmdbId]) 
 }
 
-// CACHED MOVIE MODEL 
+// CACHED MOVIE MODEL
 model Movie {
   id           String   @id @default(uuid())
   tmdbId       String?  @unique
@@ -93,6 +113,7 @@ model Movie {
   updatedAt    DateTime @updatedAt
 }
 
+// WATCH PARTY & MESSAGES
 model WatchParty {
   id        String         @id @default(uuid())
   roomId    String         @unique
@@ -103,13 +124,12 @@ model WatchParty {
   messages  PartyMessage[]
 }
 
-// movie-backend/prisma/schema.prisma
-
 model PartyMessage {
   id        String     @id @default(uuid())
   partyId   String
   party     WatchParty @relation(fields: [partyId], references: [id], onDelete: Cascade)
   userId    String?    
+  user      User?      @relation(fields: [userId], references: [id], onDelete: SetNull) // ADDED: Relation to User model
   userName  String
   avatarUrl String?  
   message   String
@@ -117,6 +137,7 @@ model PartyMessage {
   createdAt DateTime   @default(now())
 }
 
+// REVIEW MODEL
 model Review {
   id        String   @id @default(uuid())
   tmdbId    String  
@@ -125,4 +146,30 @@ model Review {
   userId    String  
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
+}
+
+// NEW MODELS FOR SOCIAL FEATURES
+model Friendship {
+  id          String           @id @default(uuid())
+  requesterId String
+  receiverId  String
+  status      FriendshipStatus @default(PENDING)
+  createdAt   DateTime         @default(now())
+
+  requester   User             @relation("Requester", fields: [requesterId], references: [id], onDelete: Cascade)
+  receiver    User             @relation("Receiver", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@unique([requesterId, receiverId])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  senderId  String? 
+  type      String   
+  message   String
+  link      String? 
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

@@ -2,8 +2,20 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
-import { Send, Search, Users, Copy, Check, ArrowLeft, PlayCircle, Film, User } from 'lucide-react';
+import { Peer } from 'peerjs'; 
+import { Send, Search, Users, Copy, Check, ArrowLeft, PlayCircle, Film, User, Shield, Mic, MicOff, Phone, PhoneOff } from 'lucide-react';
 import MovieLoader from './MovieLoader';
+
+// Component to render invisible audio streams
+const AudioPlayer = ({ stream }) => {
+  const audioRef = useRef(null);
+  useEffect(() => {
+    if (audioRef.current && stream) {
+      audioRef.current.srcObject = stream;
+    }
+  }, [stream]);
+  return <audio ref={audioRef} autoPlay playsInline className="hidden" />;
+};
 
 export default function WatchParty() {
   const { roomId } = useParams();
@@ -23,14 +35,26 @@ export default function WatchParty() {
   const [isSearching, setIsSearching] = useState(false);
   const [partyDetails, setPartyDetails] = useState(null); 
   
+  // Perfect Sync States
+  const videoRef = useRef(null);
+  const ignoreNextEvent = useRef(false);
+  
   // UI States
   const [copied, setCopied] = useState(false);
   const [idCopied, setIdCopied] = useState(false); 
   const [toast, setToast] = useState({ show: false, message: "" });
 
+  // WEBRTC VOICE CHAT STATES
+  const [isVoiceActive, setIsVoiceActive] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [remoteAudioStreams, setRemoteAudioStreams] = useState({}); 
+  
+  const peerInstance = useRef(null);
+  const userAudioStream = useRef(null);
+  const callsRef = useRef({});
+
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
-  // Use useMemo to prevent infinite re-renders by keeping a stable object reference
   const currentUser = useMemo(() => {
     const storedUser = localStorage.getItem('currentUser');
     return storedUser ? JSON.parse(storedUser) : null;
@@ -45,6 +69,8 @@ export default function WatchParty() {
     });
     return uniqueIds.size || 1; 
   }, [messages, currentUser, onlineUsers]);
+
+  const isHost = partyDetails?.hostId === currentUser?.id;
 
   const showToast = (msg) => {
     setToast({ show: true, message: msg });
@@ -97,7 +123,6 @@ export default function WatchParty() {
       setMessages((prev) => {
         const isDuplicate = data.id && prev.some(m => m.id === data.id);
         if (isDuplicate) return prev;
-        
         return [...prev, data];
       });
     });
@@ -117,12 +142,58 @@ export default function WatchParty() {
       setOnlineUsers(uniqueUsers);
     });
 
+    newSocket.on('video_control_sync', (data) => {
+      if (!videoRef.current) return;
+      ignoreNextEvent.current = true;
+      const video = videoRef.current;
+      
+      if (Math.abs(video.currentTime - data.time) > 1) {
+        video.currentTime = data.time;
+      }
+      if (data.action === 'play') {
+        video.play().catch(e => console.log("Autoplay prevented:", e));
+      } else if (data.action === 'pause') {
+        video.pause();
+      }
+      setTimeout(() => { ignoreNextEvent.current = false; }, 200);
+    });
+
+    // WEBRTC SIGNALING HANDLERS
+    newSocket.on('user_joined_voice', (peerId) => {
+      if (peerInstance.current && userAudioStream.current) {
+        const call = peerInstance.current.call(peerId, userAudioStream.current);
+        call.on('stream', (remoteStream) => {
+          setRemoteAudioStreams(prev => ({ ...prev, [peerId]: remoteStream }));
+        });
+        callsRef.current[peerId] = call;
+      }
+    });
+
+    newSocket.on('user_left_voice', (peerId) => {
+      if (callsRef.current[peerId]) {
+        callsRef.current[peerId].close();
+        delete callsRef.current[peerId];
+      }
+      setRemoteAudioStreams(prev => {
+        const newStreams = { ...prev };
+        delete newStreams[peerId];
+        return newStreams;
+      });
+    });
+
     return () => {
       newSocket.disconnect();
     };
   }, [API_URL, roomId, navigate, currentUser]);
 
-  // AUTO-SCROLL TO BOTTOM OF CHAT
+  // Clean up Voice Chat on unmount
+  useEffect(() => {
+    return () => {
+      userAudioStream.current?.getTracks().forEach(track => track.stop());
+      peerInstance.current?.destroy();
+    };
+  }, []);
+
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -133,7 +204,7 @@ export default function WatchParty() {
       setSearchResults([]);
       return;
     }
-    
+
     const timer = setTimeout(async () => {
       setIsSearching(true);
       try {
@@ -165,7 +236,7 @@ export default function WatchParty() {
     };
 
     socket.emit('send_message', messageData);
-    
+
     setNewMessage("");
   };
 
@@ -175,11 +246,14 @@ export default function WatchParty() {
 
   // HANDLE MEDIA SYNC
   const handleSyncMedia = (movie) => {
+    if (!isHost) return; 
+    const directVideoUrl = "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
     const mediaData = {
       roomId,
       tmdbId: movie.id,
       title: movie.title,
       mediaType: movie.mediaType,
+      videoUrl: directVideoUrl, 
       season: 1,
       episode: 1
     };
@@ -212,17 +286,91 @@ export default function WatchParty() {
     </div>
   );
 
-  const getEmbedUrl = () => {
-    if (!currentMedia) return "";
-    if (currentMedia.mediaType === 'tv') {
-      return `https://vidsrc.xyz/embed/tv?tmdb=${currentMedia.tmdbId}&season=${currentMedia.season}&episode=${currentMedia.episode}`;
+  const handleVideoPlay = () => {
+    if (!isHost || !socket || ignoreNextEvent.current) return;
+    socket.emit('video_control', { roomId, action: 'play', time: videoRef.current.currentTime });
+  };
+
+  const handleVideoPause = () => {
+    if (!isHost || !socket || ignoreNextEvent.current) return;
+    socket.emit('video_control', { roomId, action: 'pause', time: videoRef.current.currentTime });
+  };
+
+  const handleVideoSeeked = () => {
+    if (!isHost || !socket || ignoreNextEvent.current) return;
+    socket.emit('video_control', { roomId, action: 'seek', time: videoRef.current.currentTime });
+  };
+
+  // VOICE CHAT CONTROLS
+  const toggleVoiceChat = async () => {
+    if (isVoiceActive) {
+      // LEAVE VOICE
+      userAudioStream.current?.getTracks().forEach(track => track.stop());
+      peerInstance.current?.destroy();
+      setRemoteAudioStreams({});
+      setIsVoiceActive(false);
+      setIsMuted(false);
+      if (socket) {
+         socket.emit('leave_voice', { roomId, peerId: peerInstance.current?.id });
+      }
+      showToast("Left Voice Chat");
+    } else {
+      // JOIN VOICE
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        userAudioStream.current = stream;
+
+        // Initialize PeerJS using free public Google STUN servers
+        const peer = new Peer({
+          config: {
+            iceServers: [
+              { urls: 'stun:stun.l.google.com:19302' },
+              { urls: 'stun:stun1.l.google.com:19302' }
+            ]
+          }
+        });
+
+        peer.on('open', (id) => {
+          socket.emit('join_voice', { roomId, peerId: id });
+        });
+
+        // Answer incoming calls
+        peer.on('call', (call) => {
+          call.answer(stream);
+          call.on('stream', (remoteStream) => {
+            setRemoteAudioStreams(prev => ({ ...prev, [call.peer]: remoteStream }));
+          });
+          callsRef.current[call.peer] = call;
+        });
+
+        peerInstance.current = peer;
+        setIsVoiceActive(true);
+        showToast("Joined Voice Chat");
+      } catch (err) {
+        console.error("Microphone access error:", err);
+        showToast("Microphone access denied or not found.");
+      }
     }
-    return `https://vidsrc.xyz/embed/movie?tmdb=${currentMedia.tmdbId}`;
+  };
+
+  const toggleMute = () => {
+    if (userAudioStream.current) {
+      const audioTrack = userAudioStream.current.getAudioTracks()[0];
+      if (audioTrack) {
+        audioTrack.enabled = isMuted;
+        setIsMuted(!isMuted);
+      }
+    }
   };
 
   return (
     <div className="max-w-[1600px] mx-auto p-4 sm:p-6 min-h-screen flex flex-col xl:flex-row gap-6 animate-[fadeIn_0.4s_ease-out]">
       
+      {/* INVISIBLE AUDIO PLAYERS FOR WEBRTC */}
+      {Object.entries(remoteAudioStreams).map(([peerId, stream]) => (
+        <AudioPlayer key={peerId} stream={stream} />
+      ))}
+
       {/* LEFT PANEL: VIDEO PLAYER & CONTROLS */}
       <div className="flex-1 flex flex-col space-y-4">
         
@@ -273,17 +421,16 @@ export default function WatchParty() {
                                 <User className="w-3 h-3 text-gray-300" />
                               </div>
                             )}
-                            <span className="text-xs text-white truncate">{u.firstName} {u.lastName}</span>
+                            <span className="text-xs text-white truncate">
+                              {u.firstName} {u.lastName} {u.id === partyDetails?.hostId && <span className="text-[10px] text-indigo-400 ml-1">(Host)</span>}
+                            </span>
                           </div>
                         ))}
                       </div>
                     </div>
                   </div>
-
                 </div>
-
               </div>
-
             </div>
           </div>
 
@@ -300,65 +447,118 @@ export default function WatchParty() {
               <p className="font-bold">Waiting for host to pick a movie...</p>
             </div>
           ) : (
-            <iframe 
-              key={getEmbedUrl()} 
+            <video 
+              ref={videoRef}
               className="w-full h-full outline-none" 
-              src={getEmbedUrl()} 
-              frameBorder="0" 
-              allowFullScreen
-            ></iframe>
+              src={currentMedia.videoUrl} 
+              controls={isHost} 
+              onPlay={handleVideoPlay}
+              onPause={handleVideoPause}
+              onSeeked={handleVideoSeeked}
+              playsInline
+            >
+              Your browser does not support HTML5 video.
+            </video>
+          )}
+          
+          {!isHost && currentMedia && (
+            <div className="absolute inset-0 z-10 pointer-events-none flex items-start justify-end p-4">
+              <div className="bg-black/50 backdrop-blur-sm border border-white/10 text-white text-[10px] font-bold px-3 py-1.5 rounded-full flex items-center gap-2">
+                <Shield className="w-3 h-3 text-indigo-400" />
+                Synced with Host
+              </div>
+            </div>
           )}
         </div>
 
-        <div className="bg-gray-900/40 border border-gray-800 rounded-2xl p-5">
-          <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4">Host Controls: Pick a Movie</h3>
-          <form onSubmit={handleSearchSubmit} className="flex gap-2 relative">
-            <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none">
-              <Search className="w-4 h-4 text-gray-500" />
-            </div>
-            <input 
-              type="text" 
-              value={searchTerm} 
-              onChange={(e) => setSearchTerm(e.target.value)} 
-              placeholder="Search title to play for everyone..." 
-              className="flex-1 bg-black/60 border border-white/10 text-white rounded-xl py-3 pl-11 pr-4 focus:outline-none focus:border-indigo-500 transition-colors text-sm"
-            />
-          </form>
+        {isHost ? (
+          <div className="bg-gray-900/40 border border-gray-800 rounded-2xl p-5">
+            <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4 flex items-center">
+              <Shield className="w-4 h-4 mr-2 text-indigo-500" /> Host Controls: Pick a Movie
+            </h3>
+            <form onSubmit={handleSearchSubmit} className="flex gap-2 relative">
+              <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none">
+                <Search className="w-4 h-4 text-gray-500" />
+              </div>
+              <input 
+                type="text" 
+                value={searchTerm} 
+                onChange={(e) => setSearchTerm(e.target.value)} 
+                placeholder="Search title to play for everyone..." 
+                className="flex-1 bg-black/60 border border-white/10 text-white rounded-xl py-3 pl-11 pr-4 focus:outline-none focus:border-indigo-500 transition-colors text-sm"
+              />
+            </form>
 
-          {isSearching && (
-            <div className="mt-4 flex justify-center p-4">
-              <MovieLoader size="sm" text={false} />
-            </div>
-          )}
+            {isSearching && (
+              <div className="mt-4 flex justify-center p-4">
+                <MovieLoader size="sm" text={false} />
+              </div>
+            )}
 
-          {!isSearching && searchResults.length > 0 && (
-            <div className="mt-4 space-y-2 max-h-60 overflow-y-auto custom-scrollbar pr-2">
-              {searchResults.map(movie => (
-                <div key={movie.id} className="flex items-center justify-between bg-black/40 p-2 rounded-xl border border-white/5 hover:border-indigo-500/30 transition-colors">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <img src={movie.posterPath} alt="" className="w-10 h-14 object-cover rounded-lg" />
-                    <span className="text-white text-sm font-bold truncate pr-4">{movie.title}</span>
+            {!isSearching && searchResults.length > 0 && (
+              <div className="mt-4 space-y-2 max-h-60 overflow-y-auto custom-scrollbar pr-2">
+                {searchResults.map(movie => (
+                  <div key={movie.id} className="flex items-center justify-between bg-black/40 p-2 rounded-xl border border-white/5 hover:border-indigo-500/30 transition-colors">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <img src={movie.posterPath} alt="" className="w-10 h-14 object-cover rounded-lg" />
+                      <span className="text-white text-sm font-bold truncate pr-4">{movie.title}</span>
+                    </div>
+                    <button 
+                      onClick={() => handleSyncMedia(movie)}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg flex items-center shrink-0 transition-colors"
+                    >
+                      <PlayCircle className="w-4 h-4 mr-2" /> Sync Play
+                    </button>
                   </div>
-                  <button 
-                    onClick={() => handleSyncMedia(movie)}
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg flex items-center shrink-0 transition-colors"
-                  >
-                    <PlayCircle className="w-4 h-4 mr-2" /> Sync Play
-                  </button>
-                </div>
-              ))}
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="bg-gray-900/40 border border-gray-800 rounded-2xl p-8 flex flex-col items-center justify-center text-center h-full">
+            <div className="w-12 h-12 rounded-full bg-indigo-500/10 flex items-center justify-center mb-3 border border-indigo-500/20">
+              <Shield className="w-6 h-6 text-indigo-500" />
             </div>
-          )}
-        </div>
+            <h3 className="text-sm font-bold text-gray-300 mb-1">Host Controls Locked</h3>
+            <p className="text-xs text-gray-500 max-w-xs">Only the room host can search and sync movies. The video will play automatically when the host hits play.</p>
+          </div>
+        )}
 
       </div>
 
-      {/* RIGHT PANEL: LIVE CHAT */}
+      {/* RIGHT PANEL: LIVE CHAT & VOICE */}
       <div className="w-full xl:w-80 2xl:w-96 flex flex-col bg-gray-900/60 border border-gray-800 rounded-2xl overflow-hidden h-[600px] xl:h-auto">
-        <div className="p-4 bg-black/40 border-b border-gray-800 shrink-0">
+        <div className="p-4 bg-black/40 border-b border-gray-800 shrink-0 flex items-center justify-between">
           <h2 className="text-sm font-black text-white uppercase tracking-widest flex items-center">
             <span className="w-2 h-2 rounded-full bg-green-500 mr-2 animate-pulse"></span> Live Chat
           </h2>
+
+          {/* VOICE CHAT UI */}
+          <div className="flex items-center gap-2">
+            {isVoiceActive && (
+              <button
+                onClick={toggleMute}
+                className={`p-2 rounded-lg transition-colors ${isMuted ? 'bg-red-500/20 text-red-500' : 'bg-gray-800 text-white hover:bg-gray-700'}`}
+                title={isMuted ? "Unmute" : "Mute"}
+              >
+                {isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+              </button>
+            )}
+            <button
+              onClick={toggleVoiceChat}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 transition-colors ${
+                isVoiceActive
+                  ? 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_15px_rgba(220,38,38,0.4)]'
+                  : 'bg-green-600 hover:bg-green-500 text-white shadow-[0_0_15px_rgba(22,163,74,0.4)]'
+              }`}
+            >
+              {isVoiceActive ? (
+                <><PhoneOff className="w-3 h-3" /> Leave Voice</>
+              ) : (
+                <><Phone className="w-3 h-3" /> Join Voice</>
+              )}
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">

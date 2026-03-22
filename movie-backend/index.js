@@ -160,6 +160,19 @@ io.on('connection', (socket) => {
     socket.to(data.roomId).emit('media_updated', data);
   });
 
+  socket.on('video_control', (data) => {
+    socket.to(data.roomId).emit('video_control_sync', data);
+  });
+
+  // WEBRTC VOICE CHAT SIGNALING
+  socket.on('join_voice', ({ roomId, peerId }) => {
+    socket.to(roomId).emit('user_joined_voice', peerId);
+  });
+
+  socket.on('leave_voice', ({ roomId, peerId }) => {
+    socket.to(roomId).emit('user_left_voice', peerId);
+  });
+
   socket.on('disconnect', () => {
     if (socket.roomId && roomUsers[socket.roomId]) {
       roomUsers[socket.roomId] = roomUsers[socket.roomId].filter(u => u.socketId !== socket.id);
@@ -206,7 +219,6 @@ app.get('/api/party/:roomId', async (req, res) => {
   }
 });
 
-// BULLETPROOF CHAT FETCH: Reads directly from PartyMessage without complex relations
 app.get('/api/party/:roomId/messages', async (req, res) => {
   try {
     if (!prisma['watchParty'] || !prisma['partyMessage']) {
@@ -282,7 +294,6 @@ app.get('/api/user/:userId/parties', async (req, res) => {
   }
 });
 
-// DELETE Watch Party Room from history
 app.delete('/api/party/:roomId', async (req, res) => {
   try {
     if (prisma['watchParty']) {
@@ -356,7 +367,6 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// USER PROFILE UPDATE
 app.put('/api/user/:id', async (req, res) => {
   try {
     const { firstName, lastName, phone, country, avatarUrl } = req.body;
