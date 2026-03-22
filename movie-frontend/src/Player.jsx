@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ArrowLeft, PlayCircle, Star, Calendar, Clapperboard, 
   Users, X, User, List, Bookmark, BookmarkCheck, Plus, Check, ChevronDown,
-  SkipForward, SkipBack, Sparkles 
+  SkipForward, SkipBack, Sparkles, MessageSquare, Trash2, Send
 } from 'lucide-react';
 import MovieLoader from './MovieLoader';
 
@@ -60,6 +60,14 @@ export default function Player() {
   const [isInWatchLater, setIsInWatchLater] = useState(false);
   const [showPlaylistDropdown, setShowPlaylistDropdown] = useState(false);
   const [customPlaylists, setCustomPlaylists] = useState([]);
+
+  // REVIEW & RATING STATES
+  const [reviews, setReviews] = useState([]);
+  const [userRating, setUserRating] = useState(0);
+  const [hoverRating, setHoverRating] = useState(0);
+  const [reviewContent, setReviewContent] = useState("");
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [hasUserReviewed, setHasUserReviewed] = useState(false);
   
   // Refs
   const dropdownRef = useRef(null);
@@ -102,6 +110,32 @@ export default function Player() {
     }).catch(console.error);
   }, [API_URL, currentUserId, mediaType]);
 
+  // Fetch Reviews Helper
+  const fetchReviews = useCallback(async (tmdbId) => {
+    try {
+      const res = await fetch(`${API_URL}/api/movies/${tmdbId}/reviews`);
+      if (res.ok) {
+        const data = await res.json();
+        setReviews(data);
+        
+        if (currentUserId) {
+          const myReview = data.find(r => r.userId === currentUserId);
+          if (myReview) {
+            setUserRating(myReview.rating);
+            setReviewContent(myReview.content);
+            setHasUserReviewed(true);
+          } else {
+            setHasUserReviewed(false);
+            setUserRating(0);
+            setReviewContent("");
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Failed to fetch reviews", err);
+    }
+  }, [API_URL, currentUserId]);
+
   // Initial Load: Fetch Movie Details, Progress & Recommendations
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -133,10 +167,12 @@ export default function Player() {
           .then(recs => setRecommendations(recs))
           .catch(console.error);
 
+        // Fetch Reviews
+        fetchReviews(data.id.toString());
+
         // GET SAVED PROGRESS & SAVE HISTORY
         if (currentUserId) {
           try {
-            // Fetch specific movie progress
             const progressRes = await fetch(`${API_URL}/api/user/${currentUserId}/history/${data.id}`);
             if (progressRes.ok) {
               const progressData = await progressRes.json();
@@ -149,17 +185,14 @@ export default function Player() {
               }
             }
 
-            // Save initial view
             saveHistoryProgress(data, initialSeason, initialEpisode);
 
-            // Fetch Watch Later
             const wlRes = await fetch(`${API_URL}/api/user/${currentUserId}/watch-later`);
             if (wlRes.ok) {
               const list = await wlRes.json();
               setIsInWatchLater(list.some(item => item.tmdbId === data.id.toString()));
             }
               
-            // Fetch Playlists
             const plRes = await fetch(`${API_URL}/api/user/${currentUserId}/playlists`);
             if (plRes.ok) {
               const list = await plRes.json();
@@ -179,7 +212,7 @@ export default function Player() {
         setError(true);
         setIsLoading(false);
       });
-  }, [id, mediaType, API_URL, currentUserId, saveHistoryProgress]);
+  }, [id, mediaType, API_URL, currentUserId, saveHistoryProgress, fetchReviews]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -381,6 +414,63 @@ export default function Player() {
     }, 100);
   };
 
+  // SUBMIT REVIEW
+  const submitReview = async (e) => {
+    e.preventDefault();
+    if (!currentUserId) {
+      showToast("Please log in to submit a review.");
+      return;
+    }
+    if (userRating === 0) {
+      showToast("Please select a star rating.");
+      return;
+    }
+
+    setIsSubmittingReview(true);
+    try {
+      const res = await fetch(`${API_URL}/api/movies/reviews`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tmdbId: movie.id.toString(),
+          userId: currentUserId,
+          rating: userRating,
+          content: reviewContent.trim()
+        })
+      });
+
+      if (res.ok) {
+        showToast("Review posted successfully!");
+        fetchReviews(movie.id.toString()); 
+      } else {
+        showToast("Failed to post review.");
+      }
+    } catch (err) {
+      console.error(err);
+      showToast("Server connection error.");
+    } finally {
+      setIsSubmittingReview(false);
+    }
+  };
+
+  // DELETE REVIEW
+  const deleteReview = async (reviewId) => {
+    if (!window.confirm("Are you sure you want to delete this review?")) return;
+    
+    try {
+      const res = await fetch(`${API_URL}/api/movies/reviews/${reviewId}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        showToast("Review deleted.");
+        fetchReviews(movie.id.toString());
+      }
+    } catch (err) {
+      console.error(err);
+      showToast("Failed to delete review.");
+    }
+  };
+
   const getEmbedUrl = () => {
     if (movie?.mediaType === 'tv' || mediaType === 'tv') {
       return `https://vidsrc.xyz/embed/tv?tmdb=${id}&season=${season}&episode=${episode}`;
@@ -394,6 +484,24 @@ export default function Player() {
     } else {
       navigate("/");
     }
+  };
+
+  const renderAvatar = (url) => {
+    if (url && url !== "null") {
+      return (
+        <img 
+          src={url} 
+          alt="Avatar" 
+          className="w-10 h-10 rounded-full object-cover border border-white/10 shadow-sm shrink-0"
+          onError={(e) => { e.target.src = "https://ui-avatars.com/api/?name=User&background=374151&color=fff"; }}
+        />
+      );
+    }
+    return (
+      <div className="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center overflow-hidden shrink-0 border border-white/10 shadow-md">
+        <User className="w-5 h-5 text-gray-400" />
+      </div>
+    );
   };
 
   if (isLoading) {
@@ -417,6 +525,9 @@ export default function Player() {
   }
 
   const currentSeasonData = movie?.seasons?.find(s => s.season_number === season);
+  const averageReviewRating = reviews.length > 0 
+    ? (reviews.reduce((acc, r) => acc + r.rating, 0) / reviews.length).toFixed(1)
+    : 0;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 space-y-8 animate-[fadeIn_0.5s_ease-in-out] pb-10 relative">
@@ -429,6 +540,8 @@ export default function Player() {
       </button>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+        
+        {/* LEFT COLUMN: POSTER & ACTIONS */}
         <div className="lg:col-span-1 space-y-6">
           <img 
             src={movie.posterPath} 
@@ -536,13 +649,19 @@ export default function Player() {
           </div>
         </div>
 
+        {/* RIGHT COLUMN: INFO, VIDEO, REVIEWS */}
         <div className="lg:col-span-2 space-y-8">
           <div>
             <h1 className="text-4xl md:text-5xl font-black mb-4 text-white drop-shadow-md">{movie.title || movie.name}</h1>
             <div className="flex flex-wrap items-center gap-6 text-sm text-gray-300 font-medium">
               <span className="flex items-center bg-gray-800 px-3 py-1 rounded-full text-yellow-400 border border-gray-700">
-                <Star className="w-4 h-4 mr-1 fill-current" /> {movie.voteAverage?.toFixed(1)} Rating
+                <Star className="w-4 h-4 mr-1 fill-current" /> {movie.voteAverage?.toFixed(1)} TMDB
               </span>
+              {reviews.length > 0 && (
+                <span className="flex items-center bg-red-600/10 px-3 py-1 rounded-full text-red-500 border border-red-600/20">
+                  <MessageSquare className="w-4 h-4 mr-1" /> {averageReviewRating} User Rating
+                </span>
+              )}
               <span className="flex items-center">
                 <Calendar className="w-4 h-4 mr-2" /> Release: {formatDate(movie.releaseDate || movie.first_air_date)}
               </span>
@@ -554,6 +673,7 @@ export default function Player() {
             <p className="select-text cursor-default caret-transparent text-gray-300 text-lg leading-relaxed">{movie.overview}</p>
           </div>
 
+          {/* CAST & CREW */}
           <div className="space-y-6">
             <h3 className="text-2xl font-bold text-white flex items-center border-l-4 border-red-600 pl-3">
               <Users className="w-6 h-6 mr-2 text-red-500" /> Cast & Crew
@@ -580,47 +700,7 @@ export default function Player() {
             </div>
           </div>
 
-          {/* HORIZONTAL SCROLL RECOMMENDATIONS SECTION */}
-          {recommendations.length > 0 && (
-            <div className="space-y-6 pt-4">
-              <h3 className="text-2xl font-bold text-white flex items-center border-l-4 border-red-600 pl-3">
-                <Sparkles className="w-6 h-6 mr-2 text-red-500" /> More Like This
-              </h3>
-              <div 
-                ref={scrollRef}
-                className="flex overflow-x-auto gap-4 pb-4 custom-scrollbar cursor-grab active:cursor-grabbing select-none"
-              >
-                {recommendations.map((rec) => (
-                  <Link 
-                    to={`/watch/${rec.id}?type=${rec.mediaType}`} 
-                    key={rec.id}
-                    draggable="false"
-                    onClick={(e) => {
-                      if (isDragging.current) {
-                        e.preventDefault(); 
-                      }
-                    }}
-                    className="group block relative w-36 sm:w-40 md:w-48 flex-shrink-0 aspect-[2/3] rounded-xl overflow-hidden bg-gray-900 border border-gray-800 shadow-lg hover:border-red-500 transition-colors duration-300"
-                  >
-                    <img 
-                      src={rec.posterPath} 
-                      alt={rec.title} 
-                      draggable="false"
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 pointer-events-none"
-                      loading="lazy"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-3">
-                      <h4 className="text-white text-xs font-bold truncate">{rec.title}</h4>
-                      <div className="flex items-center gap-1 mt-1 text-yellow-500 text-[10px] font-bold">
-                        <Star className="w-3 h-3 fill-current" /> {rec.voteAverage}
-                      </div>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            </div>
-          )}
-
+          {/* VIDEO PLAYER */}
           {activeMedia && (
             <div ref={videoRef} className="pt-4 mt-8 border-t border-gray-800 animate-[fadeIn_0.5s_ease-in-out]">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
@@ -638,8 +718,7 @@ export default function Player() {
 
               {activeMedia === 'movie' && movie.mediaType === 'tv' && (
                 <div className="mb-6 p-5 bg-[#121212]/80 backdrop-blur-xl border border-white/10 rounded-2xl flex flex-col md:flex-row gap-4 relative">
-                  
-                  {/* CUSTOM SEASON DROPDOWN */}
+                  {/* SEASON DROPDOWN */}
                   <div className="flex-1 space-y-3 relative z-10" ref={seasonDropdownRef}>
                     <label className="text-[11px] uppercase font-black text-gray-400 flex items-center tracking-widest pl-1">
                       <List className="w-3.5 h-3.5 mr-2 text-red-500" /> Season
@@ -751,6 +830,164 @@ export default function Player() {
               </div>
             </div>
           )}
+
+          {/* REVIEWS & RATINGS SECTION */}
+          <div className="space-y-6 pt-10 mt-10 border-t border-gray-800/50">
+            <h3 className="text-2xl font-bold text-white flex items-center border-l-4 border-red-600 pl-3">
+              <MessageSquare className="w-6 h-6 mr-2 text-red-500" /> User Reviews
+            </h3>
+
+            {/* Post Review Form */}
+            <div className="bg-gray-900/60 border border-gray-800 rounded-2xl p-6 shadow-lg">
+              {!currentUserId ? (
+                <div className="text-center py-6">
+                  <p className="text-gray-400 mb-4 font-medium">Please log in to share your thoughts about this movie.</p>
+                  <button onClick={() => navigate('/auth?mode=login')} className="px-6 py-2.5 bg-red-600 hover:bg-red-500 text-white font-bold rounded-full transition-colors">
+                    Log In to Review
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={submitReview} className="space-y-4">
+                  <div className="flex items-center justify-between border-b border-gray-800 pb-4">
+                    <div className="flex items-center gap-3">
+                      {renderAvatar(currentUser?.avatarUrl)}
+                      <div>
+                        <p className="text-white font-bold text-sm">{hasUserReviewed ? "Edit your review" : "Rate this movie"}</p>
+                        <p className="text-xs text-gray-500 font-medium">Share your thoughts with the community</p>
+                      </div>
+                    </div>
+                    {/* Star Rating Picker */}
+                    <div className="flex gap-1" onMouseLeave={() => setHoverRating(0)}>
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <button
+                          key={star}
+                          type="button"
+                          onClick={() => setUserRating(star)}
+                          onMouseEnter={() => setHoverRating(star)}
+                          className="focus:outline-none transition-transform hover:scale-110"
+                        >
+                          <Star 
+                            className={`w-6 h-6 sm:w-8 sm:h-8 ${
+                              star <= (hoverRating || userRating)
+                                ? 'fill-yellow-500 text-yellow-500 drop-shadow-[0_0_8px_rgba(234,179,8,0.5)]'
+                                : 'text-gray-600'
+                            } transition-colors`}
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="relative">
+                    <textarea
+                      value={reviewContent}
+                      onChange={(e) => setReviewContent(e.target.value)}
+                      placeholder="Write your review here..."
+                      className="w-full bg-black/40 border border-gray-700 text-white rounded-xl p-4 min-h-[120px] focus:outline-none focus:border-red-500 transition-colors text-sm resize-y custom-scrollbar"
+                    ></textarea>
+                  </div>
+
+                  <div className="flex justify-end">
+                    <button 
+                      type="submit"
+                      disabled={isSubmittingReview || userRating === 0}
+                      className="flex items-center gap-2 px-6 py-2.5 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-bold rounded-xl transition-colors shadow-lg shadow-red-600/20"
+                    >
+                      <Send className="w-4 h-4" />
+                      {isSubmittingReview ? "Posting..." : (hasUserReviewed ? "Update Review" : "Post Review")}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+
+            {/* Reviews List */}
+            <div className="space-y-4 max-h-[600px] overflow-y-auto custom-scrollbar pr-2">
+              {reviews.length === 0 ? (
+                <div className="text-center py-10 border border-dashed border-gray-800 rounded-2xl">
+                  <MessageSquare className="w-10 h-10 text-gray-700 mx-auto mb-3" />
+                  <p className="text-gray-500 font-medium">No reviews yet. Be the first to share your thoughts!</p>
+                </div>
+              ) : (
+                reviews.map((review) => {
+                  const isMyReview = review.userId === currentUserId;
+                  return (
+                    <div key={review.id} className={`p-5 rounded-2xl border transition-colors ${isMyReview ? 'bg-red-600/5 border-red-500/20' : 'bg-gray-900/40 border-gray-800'}`}>
+                      <div className="flex justify-between items-start mb-3">
+                        <div className="flex items-center gap-3">
+                          {renderAvatar(review.user?.avatarUrl)}
+                          <div>
+                            <p className="text-white font-bold text-sm flex items-center gap-2">
+                              {review.user?.firstName} {review.user?.lastName}
+                              {isMyReview && <span className="px-2 py-0.5 bg-red-600/20 text-red-500 text-[10px] rounded-full uppercase tracking-wider">You</span>}
+                            </p>
+                            <p className="text-gray-500 text-[10px] uppercase tracking-widest mt-0.5">
+                              {new Date(review.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-end gap-2">
+                          <div className="flex gap-0.5">
+                            {[...Array(5)].map((_, i) => (
+                              <Star key={i} className={`w-3.5 h-3.5 ${i < review.rating ? 'fill-yellow-500 text-yellow-500' : 'text-gray-700'}`} />
+                            ))}
+                          </div>
+                          {isMyReview && (
+                            <button onClick={() => deleteReview(review.id)} className="text-gray-500 hover:text-red-500 transition-colors p-1" title="Delete Review">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <p className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap pl-12">{review.content}</p>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* HORIZONTAL SCROLL RECOMMENDATIONS SECTION */}
+          {recommendations.length > 0 && (
+            <div className="space-y-6 pt-10 mt-10 border-t border-gray-800/50">
+              <h3 className="text-2xl font-bold text-white flex items-center border-l-4 border-red-600 pl-3">
+                <Sparkles className="w-6 h-6 mr-2 text-red-500" /> More Like This
+              </h3>
+              <div 
+                ref={scrollRef}
+                className="flex overflow-x-auto gap-4 pb-4 custom-scrollbar cursor-grab active:cursor-grabbing select-none"
+              >
+                {recommendations.map((rec) => (
+                  <Link 
+                    to={`/watch/${rec.id}?type=${rec.mediaType}`} 
+                    key={rec.id}
+                    draggable="false"
+                    onClick={(e) => {
+                      if (isDragging.current) {
+                        e.preventDefault(); 
+                      }
+                    }}
+                    className="group block relative w-36 sm:w-40 md:w-48 flex-shrink-0 aspect-[2/3] rounded-xl overflow-hidden bg-gray-900 border border-gray-800 shadow-lg hover:border-red-500 transition-colors duration-300"
+                  >
+                    <img 
+                      src={rec.posterPath} 
+                      alt={rec.title} 
+                      draggable="false"
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 pointer-events-none"
+                      loading="lazy"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-3">
+                      <h4 className="text-white text-xs font-bold truncate">{rec.title}</h4>
+                      <div className="flex items-center gap-1 mt-1 text-yellow-500 text-[10px] font-bold">
+                        <Star className="w-3 h-3 fill-current" /> {rec.voteAverage}
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+
         </div>
       </div>
 
@@ -796,6 +1033,33 @@ export default function Player() {
                         <p className="text-gray-300 text-sm leading-relaxed text-justify">{personDetails.biography}</p>
                       </div>
                     </div>
+
+                    {/* KNOWN FOR MOVIES */}
+                    {personDetails.movies && personDetails.movies.length > 0 && (
+                      <div className="space-y-4 pt-6 border-t border-gray-800">
+                        <h3 className="text-lg font-bold text-white flex items-center">
+                          <Clapperboard className="w-5 h-5 mr-2 text-red-500" /> Known For
+                        </h3>
+                        <div className="flex overflow-x-auto gap-4 pb-2 custom-scrollbar">
+                          {personDetails.movies.map(m => (
+                            <Link 
+                              key={m.id}
+                              to={`/watch/${m.id}?type=${m.mediaType}`} 
+                              onClick={closePersonModal}
+                              className="w-28 shrink-0 group flex flex-col"
+                            >
+                              <img 
+                                src={m.posterPath} 
+                                alt={m.title} 
+                                className="w-full h-40 object-cover rounded-lg shadow-md group-hover:border-red-500 border-2 border-transparent transition-colors" 
+                              />
+                              <p className="text-white text-xs font-bold mt-2 truncate group-hover:text-red-400 transition-colors">{m.title}</p>
+                              <p className="text-gray-500 text-[10px] truncate" title={m.character}>{m.character}</p>
+                            </Link>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
