@@ -35,10 +35,6 @@ export default function WatchParty() {
   const [isSearching, setIsSearching] = useState(false);
   const [partyDetails, setPartyDetails] = useState(null); 
   
-  // Perfect Sync States
-  const videoRef = useRef(null);
-  const ignoreNextEvent = useRef(false);
-  
   // UI States
   const [copied, setCopied] = useState(false);
   const [idCopied, setIdCopied] = useState(false); 
@@ -133,29 +129,13 @@ export default function WatchParty() {
 
     newSocket.on('media_updated', (data) => {
       setCurrentMedia(data);
-      showToast(`Host changed media to: ${data.title}`);
+      showToast(`Movie changed to: ${data.title}`);
     });
 
     // LISTEN FOR ONLINE USERS UPDATE
     newSocket.on('room_users_update', (usersData) => {
       const uniqueUsers = Array.from(new Map(usersData.map(u => [u.user.id, u.user])).values());
       setOnlineUsers(uniqueUsers);
-    });
-
-    newSocket.on('video_control_sync', (data) => {
-      if (!videoRef.current) return;
-      ignoreNextEvent.current = true;
-      const video = videoRef.current;
-      
-      if (Math.abs(video.currentTime - data.time) > 1) {
-        video.currentTime = data.time;
-      }
-      if (data.action === 'play') {
-        video.play().catch(e => console.log("Autoplay prevented:", e));
-      } else if (data.action === 'pause') {
-        video.pause();
-      }
-      setTimeout(() => { ignoreNextEvent.current = false; }, 200);
     });
 
     // WEBRTC SIGNALING HANDLERS
@@ -236,7 +216,6 @@ export default function WatchParty() {
     };
 
     socket.emit('send_message', messageData);
-
     setNewMessage("");
   };
 
@@ -246,23 +225,20 @@ export default function WatchParty() {
 
   // HANDLE MEDIA SYNC
   const handleSyncMedia = (movie) => {
-    if (!isHost) return; 
-    const directVideoUrl = "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
     const mediaData = {
       roomId,
       tmdbId: movie.id,
       title: movie.title,
-      mediaType: movie.mediaType,
-      videoUrl: directVideoUrl, 
-      season: 1,
-      episode: 1
+      mediaType: movie.mediaType || (movie.title ? 'movie' : 'tv'), 
+      season: 1, 
+      episode: 1 
     };
     
     socket.emit('sync_media', mediaData);
     setCurrentMedia(mediaData);
     setSearchResults([]);
     setSearchTerm("");
-    showToast(`Synced ${movie.title} for everyone!`);
+    showToast(`You changed the movie to: ${movie.title}`);
   };
 
   // COPY FULL LINK
@@ -286,19 +262,12 @@ export default function WatchParty() {
     </div>
   );
 
-  const handleVideoPlay = () => {
-    if (!isHost || !socket || ignoreNextEvent.current) return;
-    socket.emit('video_control', { roomId, action: 'play', time: videoRef.current.currentTime });
-  };
-
-  const handleVideoPause = () => {
-    if (!isHost || !socket || ignoreNextEvent.current) return;
-    socket.emit('video_control', { roomId, action: 'pause', time: videoRef.current.currentTime });
-  };
-
-  const handleVideoSeeked = () => {
-    if (!isHost || !socket || ignoreNextEvent.current) return;
-    socket.emit('video_control', { roomId, action: 'seek', time: videoRef.current.currentTime });
+  const getEmbedUrl = () => {
+    if (!currentMedia) return "";
+    if (currentMedia.mediaType === 'tv') {
+      return `https://vidsrc.xyz/embed/tv?tmdb=${currentMedia.tmdbId}&season=${currentMedia.season}&episode=${currentMedia.episode}`;
+    }
+    return `https://vidsrc.xyz/embed/movie?tmdb=${currentMedia.tmdbId}`;
   };
 
   // VOICE CHAT CONTROLS
@@ -430,7 +399,9 @@ export default function WatchParty() {
                     </div>
                   </div>
                 </div>
+
               </div>
+
             </div>
           </div>
 
@@ -444,85 +415,62 @@ export default function WatchParty() {
           {!currentMedia ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-500">
               <Film className="w-16 h-16 mb-4 opacity-20" />
-              <p className="font-bold">Waiting for host to pick a movie...</p>
+              <p className="font-bold">Waiting for someone to pick a movie...</p>
             </div>
           ) : (
-            <video 
-              ref={videoRef}
+            <iframe 
+              key={getEmbedUrl()} 
               className="w-full h-full outline-none" 
-              src={currentMedia.videoUrl} 
-              controls={isHost} 
-              onPlay={handleVideoPlay}
-              onPause={handleVideoPause}
-              onSeeked={handleVideoSeeked}
-              playsInline
-            >
-              Your browser does not support HTML5 video.
-            </video>
-          )}
-          
-          {!isHost && currentMedia && (
-            <div className="absolute inset-0 z-10 pointer-events-none flex items-start justify-end p-4">
-              <div className="bg-black/50 backdrop-blur-sm border border-white/10 text-white text-[10px] font-bold px-3 py-1.5 rounded-full flex items-center gap-2">
-                <Shield className="w-3 h-3 text-indigo-400" />
-                Synced with Host
-              </div>
-            </div>
+              src={getEmbedUrl()} 
+              frameBorder="0" 
+              allowFullScreen
+            ></iframe>
           )}
         </div>
 
-        {isHost ? (
-          <div className="bg-gray-900/40 border border-gray-800 rounded-2xl p-5">
-            <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4 flex items-center">
-              <Shield className="w-4 h-4 mr-2 text-indigo-500" /> Host Controls: Pick a Movie
-            </h3>
-            <form onSubmit={handleSearchSubmit} className="flex gap-2 relative">
-              <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none">
-                <Search className="w-4 h-4 text-gray-500" />
-              </div>
-              <input 
-                type="text" 
-                value={searchTerm} 
-                onChange={(e) => setSearchTerm(e.target.value)} 
-                placeholder="Search title to play for everyone..." 
-                className="flex-1 bg-black/60 border border-white/10 text-white rounded-xl py-3 pl-11 pr-4 focus:outline-none focus:border-indigo-500 transition-colors text-sm"
-              />
-            </form>
-
-            {isSearching && (
-              <div className="mt-4 flex justify-center p-4">
-                <MovieLoader size="sm" text={false} />
-              </div>
-            )}
-
-            {!isSearching && searchResults.length > 0 && (
-              <div className="mt-4 space-y-2 max-h-60 overflow-y-auto custom-scrollbar pr-2">
-                {searchResults.map(movie => (
-                  <div key={movie.id} className="flex items-center justify-between bg-black/40 p-2 rounded-xl border border-white/5 hover:border-indigo-500/30 transition-colors">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <img src={movie.posterPath} alt="" className="w-10 h-14 object-cover rounded-lg" />
-                      <span className="text-white text-sm font-bold truncate pr-4">{movie.title}</span>
-                    </div>
-                    <button 
-                      onClick={() => handleSyncMedia(movie)}
-                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg flex items-center shrink-0 transition-colors"
-                    >
-                      <PlayCircle className="w-4 h-4 mr-2" /> Sync Play
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="bg-gray-900/40 border border-gray-800 rounded-2xl p-8 flex flex-col items-center justify-center text-center h-full">
-            <div className="w-12 h-12 rounded-full bg-indigo-500/10 flex items-center justify-center mb-3 border border-indigo-500/20">
-              <Shield className="w-6 h-6 text-indigo-500" />
+        {/* ROOM CONTROLS */}
+        <div className="bg-gray-900/40 border border-gray-800 rounded-2xl p-5">
+          <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4 flex items-center">
+            <Film className="w-4 h-4 mr-2 text-indigo-500" /> Room Controls: Pick a Movie
+          </h3>
+          <form onSubmit={handleSearchSubmit} className="flex gap-2 relative">
+            <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none">
+              <Search className="w-4 h-4 text-gray-500" />
             </div>
-            <h3 className="text-sm font-bold text-gray-300 mb-1">Host Controls Locked</h3>
-            <p className="text-xs text-gray-500 max-w-xs">Only the room host can search and sync movies. The video will play automatically when the host hits play.</p>
-          </div>
-        )}
+            <input 
+              type="text" 
+              value={searchTerm} 
+              onChange={(e) => setSearchTerm(e.target.value)} 
+              placeholder="Search title to play for everyone..." 
+              className="flex-1 bg-black/60 border border-white/10 text-white rounded-xl py-3 pl-11 pr-4 focus:outline-none focus:border-indigo-500 transition-colors text-sm"
+            />
+          </form>
+
+          {isSearching && (
+            <div className="mt-4 flex justify-center p-4">
+              <MovieLoader size="sm" text={false} />
+            </div>
+          )}
+
+          {!isSearching && searchResults.length > 0 && (
+            <div className="mt-4 space-y-2 max-h-60 overflow-y-auto custom-scrollbar pr-2">
+              {searchResults.map(movie => (
+                <div key={movie.id} className="flex items-center justify-between bg-black/40 p-2 rounded-xl border border-white/5 hover:border-indigo-500/30 transition-colors">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <img src={movie.posterPath} alt="" className="w-10 h-14 object-cover rounded-lg" />
+                    <span className="text-white text-sm font-bold truncate pr-4">{movie.title}</span>
+                  </div>
+                  <button 
+                    onClick={() => handleSyncMedia(movie)}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg flex items-center shrink-0 transition-colors"
+                  >
+                    <PlayCircle className="w-4 h-4 mr-2" /> Sync Play
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
       </div>
 
