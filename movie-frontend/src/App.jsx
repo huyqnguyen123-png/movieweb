@@ -8,6 +8,7 @@ import SearchResults from './SearchResults';
 import PlaylistDetail from './PlaylistDetail'; 
 import AuthPage from './Auth'; 
 import Profile from './Profile'; 
+import WatchParty from './WatchParty';
 
 function App() {
   useEffect(() => {
@@ -31,6 +32,7 @@ function App() {
             <Route path="/" element={<Home />} />
             <Route path="/watch/:id" element={<Player />} />
             <Route path="/search" element={<SearchResults />} />
+            <Route path="/party/:roomId" element={<WatchParty />} />
             <Route path="/library/:type" element={<PlaylistDetail />} />
             <Route path="/library/playlist/:id" element={<PlaylistDetail />} />
             <Route path="/auth" element={<AuthPage />} />

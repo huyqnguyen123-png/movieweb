@@ -1,3 +1,4 @@
+// prisma/schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
@@ -16,12 +17,15 @@ model User {
   country        String?
   password       String  
   profilePicture String?
+  avatarUrl      String?        // ADDED: To match Frontend payload
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
   playlists      Playlist[]
   history        WatchHistory[]
   watchLater     WatchLater[]
+  watchParties   WatchParty[]
+  reviews        Review[]
 }
 
 // PLAYLIST MODELS
@@ -87,4 +91,38 @@ model Movie {
   voteAverage  Float?   @default(0)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+}
+
+model WatchParty {
+  id        String         @id @default(uuid())
+  roomId    String         @unique
+  roomName  String?        
+  hostId    String
+  host      User           @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  createdAt DateTime       @default(now())
+  messages  PartyMessage[]
+}
+
+// movie-backend/prisma/schema.prisma
+
+model PartyMessage {
+  id        String     @id @default(uuid())
+  partyId   String
+  party     WatchParty @relation(fields: [partyId], references: [id], onDelete: Cascade)
+  userId    String?    
+  userName  String
+  avatarUrl String?  
+  message   String
+  type      String     @default("chat")
+  createdAt DateTime   @default(now())
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  tmdbId    String  
+  rating    Float    
+  content   String   
+  userId    String  
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
 }

@@ -4,7 +4,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "dev": "nodemon index.js", 
+    "dev": "nodemon index.js",
     "seed": "node seed.js",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push"
@@ -18,7 +18,8 @@
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
     "mongoose": "^9.3.1",
-    "pg": "^8.20.0"
+    "pg": "^8.20.0",
+    "socket.io": "^4.8.3"
   },
   "devDependencies": {
     "@types/node": "^25.4.0",

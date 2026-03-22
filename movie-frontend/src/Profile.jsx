@@ -4,24 +4,30 @@ import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom'; 
 import { 
   Mail, Phone, MapPin, Edit2, Save, 
-  Camera, X, ArrowLeft 
+  Camera, X, ArrowLeft, Loader2, CheckCircle
 } from 'lucide-react';
 
 export default function Profile() {
   const navigate = useNavigate(); 
   const fileInputRef = useRef(null);
 
+  // API URL from environment variables
+  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
   // Initialize with empty data to prevent undefined errors before loading
   const [user, setUser] = useState({
+    id: '',
     firstName: '',
     lastName: '',
     email: '',
     phone: '',
     country: '',
-    profilePicture: null
+    avatarUrl: null 
   });
   
   const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false); 
+  const [saveMessage, setSaveMessage] = useState({ type: '', text: '' });
 
   // Fetch logged-in user data from localStorage when component mounts
   useEffect(() => {
@@ -47,24 +53,75 @@ export default function Profile() {
   const handlePictureChange = (e) => {
     const file = e.target.files[0];
     if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        alert("Image is too large! Please choose under 2MB.");
+        return;
+      }
+
       const reader = new FileReader();
       reader.onloadend = () => {
         setUser({
           ...user,
-          profilePicture: reader.result 
+          avatarUrl: reader.result 
         });
       };
       reader.readAsDataURL(file);
     }
   };
 
-  // Handle saving user information
-  const handleSave = () => {
-    console.log('Saving user info:', user);
-    
-    // Update local storage so the new data persists on reload
-    localStorage.setItem('currentUser', JSON.stringify(user));
-    setIsEditing(false); 
+  // Handle saving user information TO DATABASE
+  const handleSave = async () => {
+    setIsSaving(true);
+    setSaveMessage({ type: '', text: '' });
+
+    try {
+      // Call Backend API to update user in PostgreSQL
+      const response = await fetch(`${API_URL}/api/user/${user.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          firstName: user.firstName,
+          lastName: user.lastName,
+          phone: user.phone,
+          country: user.country,
+          avatarUrl: user.avatarUrl
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update profile in database');
+      }
+
+      const updatedUserFromDB = await response.json();
+
+      // Create updated user object for localStorage
+      const finalUpdatedUser = { 
+        ...user,
+        ...updatedUserFromDB,
+        lastUpdated: new Date().getTime() 
+      };
+
+      // Update local storage so the new data persists
+      localStorage.setItem('currentUser', JSON.stringify(finalUpdatedUser));
+      setUser(finalUpdatedUser);
+      
+      // BROADCAST CHANGE: Crucial for Navbar & WatchParty to detect new avatar immediately
+      window.dispatchEvent(new Event("userUpdate"));
+      
+      setSaveMessage({ type: 'success', text: 'Profile updated successfully!' });
+      setTimeout(() => {
+        setIsEditing(false);
+        setSaveMessage({ type: '', text: '' });
+      }, 1500);
+
+    } catch (error) {
+      console.error("Error updating profile:", error);
+      setSaveMessage({ type: 'error', text: 'Failed to update profile. Please try again.' });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // Cancel editing and revert changes back to original localStorage data
@@ -74,6 +131,7 @@ export default function Profile() {
       setUser(JSON.parse(storedUser));
     }
     setIsEditing(false);
+    setSaveMessage({ type: '', text: '' });
   };
 
   // Trigger the hidden file input when clicking on the image overlay
@@ -111,33 +169,39 @@ export default function Profile() {
           
           {/* Clickable Profile Picture */}
           <div className="relative group shrink-0" onClick={triggerFileInput}>
-            {user.profilePicture ? (
+            {user.avatarUrl && user.avatarUrl !== "null" ? (
               <img 
-                src={user.profilePicture} 
+                src={user.avatarUrl} 
                 alt={`${user.firstName} ${user.lastName}`} 
                 className={`w-36 h-36 rounded-full object-cover border-4 shadow-2xl transition-all duration-300 ${
                   isEditing 
                     ? 'border-red-600 cursor-pointer hover:opacity-80' 
                     : 'border-white/10 group-hover:border-white/20'
                 }`}
+                onError={(e) => {
+                  e.target.style.display = 'none';
+                  e.target.nextSibling.style.display = 'flex';
+                }}
               />
-            ) : (
-              <div 
-                className={`w-36 h-36 rounded-full border-4 shadow-2xl transition-all duration-300 overflow-hidden bg-[#e4e6eb] flex items-end justify-center ${
-                  isEditing 
-                    ? 'border-red-600 cursor-pointer hover:opacity-80' 
-                    : 'border-white/10 group-hover:border-white/20'
-                }`}
+            ) : null}
+            
+            <div 
+              className={`w-36 h-36 rounded-full border-4 shadow-2xl transition-all duration-300 overflow-hidden bg-[#e4e6eb] items-end justify-center ${
+                (!user.avatarUrl || user.avatarUrl === "null") ? 'flex' : 'hidden'
+              } ${
+                isEditing 
+                  ? 'border-red-600 cursor-pointer hover:opacity-80' 
+                  : 'border-white/10 group-hover:border-white/20'
+              }`}
+            >
+              <svg 
+                className="w-32 h-32 text-[#bcc0c4] translate-y-3" 
+                fill="currentColor" 
+                viewBox="0 0 24 24"
               >
-                <svg 
-                  className="w-32 h-32 text-[#bcc0c4] translate-y-3" 
-                  fill="currentColor" 
-                  viewBox="0 0 24 24"
-                >
-                  <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
-                </svg>
-              </div>
-            )}
+                <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
+              </svg>
+            </div>
             
             {isEditing && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-full text-white pointer-events-none transition-opacity opacity-0 group-hover:opacity-100">
@@ -162,18 +226,34 @@ export default function Profile() {
               <Mail className="w-4 h-4" />
               {user.email}
             </p>
+
+            {/* Status Message Display */}
+            {saveMessage.text && (
+              <div className={`mt-2 flex items-center justify-center sm:justify-start gap-2 text-sm font-bold ${saveMessage.type === 'success' ? 'text-green-500' : 'text-red-500'}`}>
+                {saveMessage.type === 'success' ? <CheckCircle className="w-4 h-4" /> : <X className="w-4 h-4" />}
+                {saveMessage.text}
+              </div>
+            )}
           </div>
 
           {/* Control Buttons */}
           <div className="absolute top-8 right-8 flex gap-3 z-20">
             {isEditing ? (
               <>
-                <button onClick={handleCancel} className="p-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-gray-400 hover:text-white transition-colors">
+                <button 
+                  onClick={handleCancel} 
+                  disabled={isSaving}
+                  className="p-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-gray-400 hover:text-white transition-colors disabled:opacity-50"
+                >
                   <X className="w-5 h-5" />
                 </button>
-                <button onClick={handleSave} className="flex items-center gap-3 px-6 py-3.5 bg-green-600 hover:bg-green-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-green-600/30">
-                  <Save className="w-4 h-4" />
-                  Save Changes
+                <button 
+                  onClick={handleSave} 
+                  disabled={isSaving}
+                  className="flex items-center gap-3 px-6 py-3.5 bg-green-600 hover:bg-green-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-green-600/30 disabled:opacity-50"
+                >
+                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  {isSaving ? 'Saving...' : 'Save Changes'}
                 </button>
               </>
             ) : (
@@ -185,7 +265,7 @@ export default function Profile() {
           </div>
         </div>
 
-        {/* Detailed Information */}
+        {/* Detailed Information Section */}
         <div className="bg-[#121212]/50 backdrop-blur-xl border border-white/5 p-10 rounded-[2.5rem] shadow-2xl relative overflow-visible">
           <h2 className="text-2xl font-black text-white mb-10 tracking-tight flex items-center gap-3">
             <Edit2 className="w-6 h-6 text-red-600" />
@@ -199,7 +279,7 @@ export default function Profile() {
               name="firstName" 
               value={user.firstName} 
               onChange={handleChange} 
-              disabled={!isEditing}
+              disabled={!isEditing || isSaving}
             />
             
             <InputGroup 
@@ -208,7 +288,7 @@ export default function Profile() {
               name="lastName" 
               value={user.lastName} 
               onChange={handleChange} 
-              disabled={!isEditing}
+              disabled={!isEditing || isSaving}
             />
 
             <InputGroup 
@@ -218,7 +298,7 @@ export default function Profile() {
               icon={Phone} 
               value={user.phone} 
               onChange={handleChange} 
-              disabled={!isEditing}
+              disabled={!isEditing || isSaving}
               type="tel"
             />
 
@@ -229,7 +309,7 @@ export default function Profile() {
               icon={MapPin} 
               value={user.country} 
               onChange={handleChange} 
-              disabled={!isEditing}
+              disabled={!isEditing || isSaving}
             />
 
             <div className="md:col-span-2">
@@ -251,7 +331,7 @@ export default function Profile() {
   );
 }
 
-// Reusable Input Group Component with Floating Label 
+// Reusable Input Group Component with Full Styling
 function InputGroup({ label, id, name, value, onChange, disabled, type = "text", icon: Icon, readOnly = false }) {
   const [isFocused, setIsFocused] = useState(false);
   const hasValue = value !== null && value !== undefined && value.toString().length > 0;

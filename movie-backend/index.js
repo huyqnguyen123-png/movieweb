@@ -7,25 +7,307 @@ import pg from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import axios from 'axios';
 import bcrypt from 'bcryptjs';
+import http from 'http';
+import { Server } from 'socket.io';
 
 const { PrismaClient } = pkg;
 dotenv.config();
 
 const app = express();
+const server = http.createServer(app);
+
+// Initialize Socket.io with CORS configuration
+const io = new Server(server, {
+  cors: {
+    origin: process.env.FRONTEND_URL || "http://localhost:5173", 
+    methods: ["GET", "POST"]
+  }
+});
+
 app.use(cors());
-app.use(express.json());
+
+// INCREASE PAYLOAD LIMIT TO 50MB FOR BASE64 IMAGE UPLOADS
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Initialize PostgreSQL connection pool and Prisma adapter
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
+// GLOBAL VARIABLE TO TRACK ONLINE USERS PER ROOM
+const roomUsers = {};
+
+// SOCKET.IO REAL-TIME LOGIC (WATCH PARTY)
+io.on('connection', (socket) => {
+  console.log('⚡ A user connected via Socket.io:', socket.id);
+
+  socket.on('join_party', async ({ roomId, user }) => {
+    socket.join(roomId);
+    const userName = user ? (user.firstName || 'Guest') : 'Guest';
+    
+    socket.roomId = roomId;
+    socket.user = user;
+
+    if (!roomUsers[roomId]) {
+      roomUsers[roomId] = [];
+    }
+    
+    roomUsers[roomId].push({ socketId: socket.id, user });
+    io.to(roomId).emit('room_users_update', roomUsers[roomId]);
+
+    let sysMsgToBroadcast = {
+      type: 'system',
+      message: `${userName} joined the party!`,
+      timestamp: new Date().toISOString()
+    };
+
+    try {
+      if (user?.id && prisma['watchParty']) {
+        let existingParty = await prisma['watchParty'].findFirst({ 
+          where: { roomId: roomId } 
+        });
+        
+        if (!existingParty) {
+          existingParty = await prisma['watchParty'].create({
+            data: { 
+              roomId: roomId, 
+              roomName: "Untitled Party", 
+              hostId: user.id 
+            }
+          });
+        }
+
+        if (prisma['partyMessage']) {
+          const hasJoinedBefore = await prisma['partyMessage'].findFirst({
+            where: { partyId: existingParty.id, userId: user.id }
+          });
+
+          if (!hasJoinedBefore) {
+            const savedSysMsg = await prisma['partyMessage'].create({
+              data: {
+                partyId: existingParty.id,
+                userId: user.id, 
+                userName: "System",
+                message: `${userName} joined the party!`,
+                type: 'system'
+              }
+            });
+
+            sysMsgToBroadcast = {
+              id: savedSysMsg.id,
+              type: 'system',
+              roomId: roomId,
+              userId: user.id,
+              user: "System",
+              message: savedSysMsg.message,
+              timestamp: savedSysMsg.createdAt
+            };
+          }
+        }
+      }
+    } catch (err) {
+      console.error("❌ DB Socket Error:", err.message);
+    }
+    
+    socket.to(roomId).emit('party_notification', sysMsgToBroadcast);
+  });
+
+  socket.on('send_message', async (data) => {
+    if (!data.message || data.message.trim() === '') return;
+
+    try {
+      if (prisma['watchParty'] && prisma['partyMessage']) {
+        let party = await prisma['watchParty'].findFirst({ 
+          where: { roomId: data.roomId } 
+        });
+        
+        if (!party && data.userId) {
+          party = await prisma['watchParty'].create({
+            data: {
+              roomId: data.roomId,
+              roomName: "Untitled Party",
+              hostId: data.userId
+            }
+          });
+        }
+        
+        if (party) {
+          const savedMsg = await prisma['partyMessage'].create({
+            data: {
+              partyId: party.id,
+              userId: data.userId || null,
+              userName: data.user,
+              avatarUrl: data.avatarUrl || null,
+              message: data.message,
+              type: data.type || 'chat'
+            }
+          });
+          
+          const messageToBroadcast = {
+            ...data,
+            id: savedMsg.id, 
+            timestamp: savedMsg.createdAt
+          };
+
+          io.to(data.roomId).emit('receive_message', messageToBroadcast);
+        }
+      }
+    } catch (err) {
+      console.error("❌ DB Message Error:", err.message);
+    }
+  });
+
+  socket.on('sync_media', (data) => {
+    socket.to(data.roomId).emit('media_updated', data);
+  });
+
+  socket.on('disconnect', () => {
+    if (socket.roomId && roomUsers[socket.roomId]) {
+      roomUsers[socket.roomId] = roomUsers[socket.roomId].filter(u => u.socketId !== socket.id);
+      io.to(socket.roomId).emit('room_users_update', roomUsers[socket.roomId]);
+    }
+  });
+});
+
+// WATCH PARTY APIs
+app.post('/api/party/create', async (req, res) => {
+  try {
+    const { roomId, hostId, roomName } = req.body;
+    if (!roomId || !hostId) return res.status(400).json({ error: 'Missing roomId or hostId' });
+
+    if (prisma['watchParty']) {
+      let party = await prisma['watchParty'].findFirst({ where: { roomId } });
+      
+      if (!party) {
+        party = await prisma['watchParty'].create({
+          data: { 
+            roomId, 
+            hostId,
+            roomName: roomName || "My Watch Party" 
+          }
+        });
+      }
+      return res.status(200).json(party);
+    }
+    res.status(500).json({ error: 'Database model not initialized' });
+  } catch (error) {
+    console.error("❌ API Room Creation Error:", error);
+    res.status(500).json({ error: 'Failed to create room' });
+  }
+});
+
+app.get('/api/party/:roomId', async (req, res) => {
+  try {
+    if (!prisma['watchParty']) return res.status(404).json({ error: 'Model not found' });
+    const party = await prisma['watchParty'].findFirst({ where: { roomId: req.params.roomId } });
+    if (!party) return res.status(404).json({ error: 'Room not found' });
+    return res.status(200).json(party);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch room info' });
+  }
+});
+
+// BULLETPROOF CHAT FETCH: Reads directly from PartyMessage without complex relations
+app.get('/api/party/:roomId/messages', async (req, res) => {
+  try {
+    if (!prisma['watchParty'] || !prisma['partyMessage']) {
+      return res.status(200).json([]);
+    }
+
+    const party = await prisma['watchParty'].findFirst({
+      where: { roomId: req.params.roomId }
+    });
+
+    if (!party) {
+      return res.status(200).json([]);
+    }
+
+    const messages = await prisma['partyMessage'].findMany({
+      where: { partyId: party.id },
+      orderBy: { createdAt: 'asc' }
+    });
+
+    const userIds = [...new Set(messages.filter(m => !m.avatarUrl && m.userId && m.type !== 'system').map(m => m.userId))];
+    let usersMap = {};
+    
+    if (userIds.length > 0) {
+      try {
+        const users = await prisma['user'].findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, avatarUrl: true }
+        });
+        
+        users.forEach(u => {
+          usersMap[u.id] = u.avatarUrl;
+        });
+      } catch (avatarErr) {}
+    }
+
+    const formattedMessages = messages.map(msg => ({
+      id: msg.id,
+      type: msg.type,
+      roomId: party.roomId,
+      user: msg.userName,
+      userId: msg.userId,
+      avatarUrl: msg.avatarUrl || usersMap[msg.userId] || null, 
+      message: msg.message,
+      timestamp: msg.createdAt
+    }));
+
+    return res.status(200).json(formattedMessages);
+  } catch (error) {
+    console.error("❌ Failed to fetch chat history:", error.message);
+    res.status(200).json([]); 
+  }
+});
+
+app.get('/api/user/:userId/parties', async (req, res) => {
+  try {
+    if (prisma['watchParty']) {
+      const parties = await prisma['watchParty'].findMany({
+        where: {
+          OR: [
+            { hostId: req.params.userId },
+            { messages: { some: { userId: req.params.userId } } }
+          ]
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 15 
+      });
+      return res.json(parties);
+    }
+    res.json([]);
+  } catch (error) {
+    console.error("Failed to fetch user party history:", error);
+    res.status(500).json({ error: 'Failed to fetch party history' });
+  }
+});
+
+// DELETE Watch Party Room from history
+app.delete('/api/party/:roomId', async (req, res) => {
+  try {
+    if (prisma['watchParty']) {
+      const party = await prisma['watchParty'].findFirst({ where: { roomId: req.params.roomId } });
+      if (party) {
+        await prisma['watchParty'].delete({
+          where: { id: party.id }
+        });
+      }
+      return res.status(200).json({ message: 'Room history deleted' });
+    }
+    res.status(500).json({ error: 'Database model not initialized' });
+  } catch (error) {
+    console.error("❌ Delete Party Error:", error.message);
+    res.status(500).json({ error: 'Failed to delete room history' });
+  }
+});
+
 // AUTHENTICATION ROUTES
 app.post('/api/auth/signup', async (req, res) => {
   try {
     const { firstName, lastName, email, phone, country, password } = req.body;
 
-    // Check if Email already exists
     const existingEmail = await prisma.user.findUnique({ 
       where: { email: email } 
     });
@@ -34,7 +316,6 @@ app.post('/api/auth/signup', async (req, res) => {
       return res.status(400).json({ message: 'This email is already registered!' });
     }
 
-    // Check if Phone number already exists (if user provided one)
     if (phone && phone.trim() !== '') {
       const existingPhone = await prisma.user.findFirst({ 
         where: { phone: phone } 
@@ -45,7 +326,6 @@ app.post('/api/auth/signup', async (req, res) => {
       }
     }
 
-    // Hash password and create new user
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
@@ -78,9 +358,22 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// USER PERSONALIZATION ROUTES
+// USER PROFILE UPDATE
+app.put('/api/user/:id', async (req, res) => {
+  try {
+    const { firstName, lastName, phone, country, avatarUrl } = req.body;
+    const updatedUser = await prisma.user.update({
+      where: { id: req.params.id },
+      data: { firstName, lastName, phone, country, avatarUrl }
+    });
+    const { password, ...userData } = updatedUser;
+    res.json(userData);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update profile' });
+  }
+});
 
-// Watch History 
+// USER PERSONALIZATION ROUTES
 app.post('/api/user/history', async (req, res) => {
   try {
     const { userId, tmdbId, title, posterPath, mediaType, season, episode, stoppedAt } = req.body;
@@ -138,7 +431,6 @@ app.get('/api/user/:userId/history/:tmdbId', async (req, res) => {
   }
 });
 
-// Watch Later 
 app.post('/api/user/watch-later', async (req, res) => {
   try {
     const { userId, tmdbId, title, posterPath, mediaType } = req.body;
@@ -173,7 +465,6 @@ app.get('/api/user/:userId/watch-later', async (req, res) => {
   }
 });
 
-// Playlists 
 app.post('/api/user/playlists', async (req, res) => {
   try {
     const { userId, name } = req.body;
@@ -246,6 +537,84 @@ app.get('/api/playlists/:id', async (req, res) => {
     res.json(playlist);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch playlist details' });
+  }
+});
+
+// REVIEW & RATING APIs
+app.get('/api/movies/:tmdbId/reviews', async (req, res) => {
+  try {
+    if (!prisma['review']) return res.status(200).json([]);
+    
+    const reviews = await prisma['review'].findMany({
+      where: { tmdbId: req.params.tmdbId },
+      include: { 
+        user: { 
+          select: { firstName: true, lastName: true, avatarUrl: true } 
+        } 
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+    
+    res.status(200).json(reviews);
+  } catch (error) {
+    console.error("❌ Failed to fetch reviews:", error);
+    res.status(500).json({ error: 'Failed to fetch reviews' });
+  }
+});
+
+app.post('/api/movies/reviews', async (req, res) => {
+  try {
+    const { tmdbId, userId, rating, content } = req.body;
+    
+    if (!tmdbId || !userId || rating === undefined) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+    
+    if (prisma['review']) {
+      const existingReview = await prisma['review'].findFirst({
+        where: { tmdbId: tmdbId, userId: userId }
+      });
+      
+      if (existingReview) {
+        const updated = await prisma['review'].update({
+          where: { id: existingReview.id },
+          data: { rating: parseFloat(rating), content: content || "" },
+          include: { user: { select: { firstName: true, lastName: true, avatarUrl: true } } }
+        });
+        return res.status(200).json(updated);
+      }
+      
+      const newReview = await prisma['review'].create({
+        data: { 
+          tmdbId: tmdbId, 
+          userId: userId, 
+          rating: parseFloat(rating), 
+          content: content || "" 
+        },
+        include: { user: { select: { firstName: true, lastName: true, avatarUrl: true } } }
+      });
+      return res.status(201).json(newReview);
+    }
+    
+    res.status(500).json({ error: 'Review model not initialized in DB' });
+  } catch (error) {
+    console.error("❌ Failed to post review:", error);
+    res.status(500).json({ error: 'Failed to post review' });
+  }
+});
+
+app.delete('/api/movies/reviews/:id', async (req, res) => {
+  try {
+    if (prisma['review']) {
+      await prisma['review'].delete({ 
+        where: { id: req.params.id } 
+      });
+      return res.status(200).json({ message: 'Review deleted successfully' });
+    }
+    res.status(500).json({ error: 'Review model not initialized in DB' });
+  } catch (error) {
+    console.error("❌ Failed to delete review:", error);
+    res.status(500).json({ error: 'Failed to delete review' });
   }
 });
 
@@ -351,16 +720,32 @@ app.get('/api/movies/search', async (req, res) => {
         axios.get(`https://api.themoviedb.org/3/discover/tv?${tvQuery}`, { headers })
       ]);
 
-      const movies = (movieRes.data.results || []).map(item => ({ ...item, mediaType: 'movie', releaseDate: item.release_date, popularity: item.popularity }));
-      const tvShows = (tvRes.data.results || []).map(item => ({ ...item, mediaType: 'tv', releaseDate: item.first_air_date, title: item.name, popularity: item.popularity }));
+      const movies = (movieRes.data.results || []).map(item => ({ 
+        ...item, 
+        mediaType: 'movie', 
+        releaseDate: item.release_date, 
+        popularity: item.popularity 
+      }));
+      const tvShows = (tvRes.data.results || []).map(item => ({ 
+        ...item, 
+        mediaType: 'tv', 
+        releaseDate: item.first_air_date, 
+        title: item.name, 
+        popularity: item.popularity 
+      }));
 
       rawResults = [...movies, ...tvShows].sort((a, b) => b.popularity - a.popularity);
     } else {
-      const response = await axios.get(
-        `https://api.themoviedb.org/3/search/multi?query=${encodeURIComponent(q)}&language=en-US&include_adult=false`,
-        { headers }
-      );
-      rawResults = (response.data.results || []);
+      const encodedQuery = encodeURIComponent(q);
+      const [movieRes, tvRes] = await Promise.all([
+        axios.get(`https://api.themoviedb.org/3/search/movie?query=${encodedQuery}&language=en-US&include_adult=false`, { headers }).catch(() => ({ data: { results: [] } })),
+        axios.get(`https://api.themoviedb.org/3/search/tv?query=${encodedQuery}&language=en-US&include_adult=false`, { headers }).catch(() => ({ data: { results: [] } }))
+      ]);
+
+      const movies = (movieRes.data.results || []).map(item => ({ ...item, media_type: 'movie' }));
+      const tvShows = (tvRes.data.results || []).map(item => ({ ...item, media_type: 'tv' }));
+      
+      rawResults = [...movies, ...tvShows].sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
     }
 
     const results = rawResults
@@ -382,7 +767,6 @@ app.get('/api/movies/search', async (req, res) => {
   }
 });
 
-// Get movie/tv details
 app.get('/api/movies/:id', async (req, res) => {
   try {
     const paramId = req.params.id;
@@ -391,8 +775,7 @@ app.get('/api/movies/:id', async (req, res) => {
     let movie = null;
     try {
       movie = await prisma.movie.findUnique({ where: { id: paramId } });
-    } catch (dbErr) {
-    }
+    } catch (dbErr) {}
 
     if (movie) {
       const [creditsRes, videosRes] = await Promise.all([
@@ -451,7 +834,6 @@ app.get('/api/movies/:id', async (req, res) => {
   }
 });
 
-// Get movie recommendations
 app.get('/api/movies/:id/recommendations', async (req, res) => {
   try {
     const { id } = req.params;
@@ -538,4 +920,4 @@ app.get('/api/person/:id', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`🚀 Server on http://localhost:${PORT}`));
+server.listen(PORT, () => console.log(`🚀 Server on http://localhost:${PORT}`));
