@@ -165,7 +165,7 @@ export default function Settings() {
   const handlePictureChange = (e) => {
     const file = e.target.files[0];
     if (file) {
-      if (file.size > 2 * 1024 * 1024) return alert("Image is too large! Please choose under 2MB.");
+      if (file.size > 10 * 1024 * 1024) return alert("Image is too large! Please choose under 2MB.");
       const reader = new FileReader();
       reader.onloadend = () => setUser({ ...user, avatarUrl: reader.result });
       reader.readAsDataURL(file);
