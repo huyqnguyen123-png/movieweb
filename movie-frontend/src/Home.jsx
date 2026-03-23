@@ -80,8 +80,7 @@ const MovieCategory = ({ title, genreId, isTrending = false }) => {
       el.removeEventListener('wheel', onWheel);
       el.removeEventListener('scroll', onScroll);
     };
-  }, [movies]); 
-
+  }, [movies]);
   // Do not render the category if it has no movies (after trying to fetch)
   if (movies.length === 0) return null;
 
@@ -221,23 +220,22 @@ export default function Home() {
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
         
-        /* Custom Swiper Slide Widths for Responsive Coverflow */
         .coverflow-slide {
-          width: 240px !important; /* Mobile Portrait Width */
-          height: 360px !important; /* Mobile Portrait Height */
+          width: 240px !important; 
+          height: 360px !important; 
         }
         
         @media (min-width: 768px) {
           .coverflow-slide {
-             width: 600px !important; /* Desktop Landscape Width */
-             height: 340px !important; /* Desktop Landscape Height */
+             width: 600px !important; 
+             height: 340px !important; 
           }
         }
         
         @media (min-width: 1024px) {
           .coverflow-slide {
-             width: 700px !important; /* Large Desktop Width */
-             height: 394px !important; /* Large Desktop Height */
+             width: 700px !important; 
+             height: 394px !important; 
           }
         }
       `}</style>
@@ -250,8 +248,8 @@ export default function Home() {
         </div>
         
         <div className="relative max-w-7xl mx-auto px-0 md:px-16">
-          
-          {/* HIDDEN ON MOBILE: Navigation Arrows */}
+
+         
           <button className="hidden md:block custom-prev absolute left-0 top-1/2 -translate-y-1/2 z-20 text-white/50 hover:text-white transition-all duration-300 hover:scale-125">
             <ChevronLeft size={60} strokeWidth={1} />
           </button>
@@ -279,9 +277,8 @@ export default function Home() {
               return (
                 <SwiperSlide key={`hero-${movie.id}`} className="coverflow-slide">
                   {({ isActive }) => (
-                    <div className={`relative w-full h-full rounded-xl md:rounded-2xl overflow-hidden transition-all duration-500 bg-gray-900 shadow-2xl ${isActive ? 'group ring-2 ring-red-600/50 md:ring-0' : ''}`}>
-                      
-                      {/* Responsive Image Loading */}
+                    <div className={`relative cursor-pointer w-full h-full rounded-xl md:rounded-2xl overflow-hidden transition-all duration-500 bg-gray-900 shadow-2xl ${isActive ? 'group ring-2 ring-gray-700/80 md:ring-0' : ''}`}>
+                      {/* Responsive Image Loading */}                      
                       <picture>
                         <source media="(min-width: 768px)" srcSet={desktopImg} />
                         <img 
@@ -292,11 +289,8 @@ export default function Home() {
                         />
                       </picture>
 
-                      {/* Overlay Gradients */}
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-500"></div>
-                      
-                      {/* Content Box */}
-                      <div className="absolute bottom-4 left-4 right-4 md:bottom-6 md:left-6 md:right-6 transform md:translate-y-10 opacity-100 md:opacity-0 md:group-hover:translate-y-0 md:group-hover:opacity-100 transition-all duration-500 z-10 flex flex-col items-center">
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                      <div className="absolute bottom-4 left-4 right-4 md:bottom-6 md:left-6 md:right-6 transform translate-y-10 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-500 z-10 flex flex-col items-center">
                         <div className="bg-black/40 md:bg-white/95 backdrop-blur-md rounded-xl md:rounded-2xl p-3 md:p-4 flex flex-col items-center w-full max-w-[90%] md:max-w-md md:shadow-2xl border border-white/10 md:border-none">
                           <h3 className="text-white md:text-gray-900 font-black text-lg md:text-xl mb-2 md:mb-3 text-center truncate w-full px-2 drop-shadow-md md:drop-shadow-none">
                             {movie.title}
