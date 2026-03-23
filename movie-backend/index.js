@@ -24,7 +24,13 @@ const io = new Server(server, {
   }
 });
 
-app.use(cors());
+// Relaxed CORS for Express to prevent any block from Vercel during requests
+app.use(cors({
+  origin: '*', 
+  methods: ["GET", "POST", "PUT", "DELETE"],
+  credentials: true
+}));
+
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
@@ -205,8 +211,10 @@ app.get('/api/social/search', async (req, res) => {
     const { email } = req.query;
     if (!email) return res.status(400).json({ error: "Email is required" });
     
+    const searchEmail = email.toLowerCase();
+
     const user = await prisma.user.findUnique({
-      where: { email },
+      where: { email: searchEmail },
       select: { id: true, firstName: true, lastName: true, avatarUrl: true, email: true }
     });
     if (!user) return res.status(404).json({ error: "User not found" });
@@ -543,7 +551,12 @@ app.delete('/api/party/:roomId', async (req, res) => {
 // AUTHENTICATION ROUTES
 app.post('/api/auth/signup', async (req, res) => {
   try {
-    const { firstName, lastName, email, phone, country, password } = req.body;
+    let { firstName, lastName, email, phone, country, password } = req.body;
+
+    // Convert email to lowercase to prevent case-sensitive duplicate issues
+    if (email) {
+      email = email.toLowerCase();
+    }
 
     const existingEmail = await prisma.user.findUnique({ 
       where: { email: email } 
@@ -579,7 +592,13 @@ app.post('/api/auth/signup', async (req, res) => {
 
 app.post('/api/auth/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    let { email, password } = req.body;
+
+    // Convert email to lowercase to match the DB accurately
+    if (email) {
+      email = email.toLowerCase();
+    }
+
     const user = await prisma.user.findUnique({ where: { email: email } });
 
     if (!user) return res.status(400).json({ message: 'Invalid email or password' });
@@ -923,8 +942,17 @@ const SMART_FILTER_MAP = {
 app.get('/api/movies', async (req, res) => {
   try {
     const movies = await prisma.movie.findMany({ orderBy: { createdAt: 'desc' }, take: 20 });
-    res.json(movies);
+    
+    // Map database structure to Frontend player structure
+    const formattedMovies = movies.map(m => ({
+      ...m,
+      id: m.tmdbId, 
+      mediaType: m.mediaType || 'movie' 
+    }));
+
+    res.json(formattedMovies);
   } catch (error) {
+    console.error("New Arrivals API Error:", error.message);
     res.status(500).json({ error: 'Database error' });
   }
 });
