@@ -20,7 +20,7 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: process.env.FRONTEND_URL || "http://localhost:5173", 
-    methods: ["GET", "POST"]
+    methods: ["GET", "POST", "PUT", "DELETE"]
   }
 });
 
@@ -36,10 +36,23 @@ const prisma = new PrismaClient({ adapter });
 // GLOBAL VARIABLE TO TRACK ONLINE USERS PER ROOM
 const roomUsers = {};
 
-// SOCKET.IO REAL-TIME LOGIC (WATCH PARTY)
+// SOCKET.IO REAL-TIME LOGIC
 io.on('connection', (socket) => {
   console.log('⚡ A user connected via Socket.io:', socket.id);
 
+  // GLOBAL REGISTRATION FOR NOTIFICATIONS
+  socket.on('register_global', (userId) => {
+    if (userId) {
+      socket.join(`user_${userId}`);
+      console.log(`User ${userId} joined global room for notifications.`);
+    }
+  });
+
+  socket.on('user_deleted_room_history', ({ roomId, userId }) => {
+    socket.to(roomId).emit('invite_reset_for_user', userId);
+  });
+
+  // WATCH PARTY LOGIC
   socket.on('join_party', async ({ roomId, user }) => {
     socket.join(roomId);
     const userName = user ? (user.firstName || 'Guest') : 'Guest';
@@ -61,13 +74,13 @@ io.on('connection', (socket) => {
     };
 
     try {
-      if (user?.id && prisma['watchParty']) {
-        let existingParty = await prisma['watchParty'].findFirst({ 
+      if (user?.id && prisma.watchParty) {
+        let existingParty = await prisma.watchParty.findFirst({ 
           where: { roomId: roomId } 
         });
         
         if (!existingParty) {
-          existingParty = await prisma['watchParty'].create({
+          existingParty = await prisma.watchParty.create({
             data: { 
               roomId: roomId, 
               roomName: "Untitled Party", 
@@ -76,13 +89,13 @@ io.on('connection', (socket) => {
           });
         }
 
-        if (prisma['partyMessage']) {
-          const hasJoinedBefore = await prisma['partyMessage'].findFirst({
+        if (prisma.partyMessage) {
+          const hasJoinedBefore = await prisma.partyMessage.findFirst({
             where: { partyId: existingParty.id, userId: user.id }
           });
 
           if (!hasJoinedBefore) {
-            const savedSysMsg = await prisma['partyMessage'].create({
+            const savedSysMsg = await prisma.partyMessage.create({
               data: {
                 partyId: existingParty.id,
                 userId: user.id, 
@@ -115,13 +128,13 @@ io.on('connection', (socket) => {
     if (!data.message || data.message.trim() === '') return;
 
     try {
-      if (prisma['watchParty'] && prisma['partyMessage']) {
-        let party = await prisma['watchParty'].findFirst({ 
+      if (prisma.watchParty && prisma.partyMessage) {
+        let party = await prisma.watchParty.findFirst({ 
           where: { roomId: data.roomId } 
         });
         
         if (!party && data.userId) {
-          party = await prisma['watchParty'].create({
+          party = await prisma.watchParty.create({
             data: {
               roomId: data.roomId,
               roomName: "Untitled Party",
@@ -131,7 +144,7 @@ io.on('connection', (socket) => {
         }
         
         if (party) {
-          const savedMsg = await prisma['partyMessage'].create({
+          const savedMsg = await prisma.partyMessage.create({
             data: {
               partyId: party.id,
               userId: data.userId || null,
@@ -164,6 +177,10 @@ io.on('connection', (socket) => {
     socket.to(data.roomId).emit('video_control_sync', data);
   });
 
+  socket.on('send_global_notification', ({ receiverId }) => {
+    socket.to(`user_${receiverId}`).emit('receive_notification', { type: 'REFRESH_NOTIFICATIONS' });
+  });
+
   // WEBRTC VOICE CHAT SIGNALING
   socket.on('join_voice', ({ roomId, peerId }) => {
     socket.to(roomId).emit('user_joined_voice', peerId);
@@ -181,17 +198,228 @@ io.on('connection', (socket) => {
   });
 });
 
+// SOCIAL APIs 
+// Search users by exact email to add friend
+app.get('/api/social/search', async (req, res) => {
+  try {
+    const { email } = req.query;
+    if (!email) return res.status(400).json({ error: "Email is required" });
+    
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: { id: true, firstName: true, lastName: true, avatarUrl: true, email: true }
+    });
+    if (!user) return res.status(404).json({ error: "User not found" });
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ error: "Search failed" });
+  }
+});
+
+// Get user's friends and pending requests
+app.get('/api/social/friends/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const friendships = await prisma.friendship.findMany({
+      where: { OR: [{ requesterId: userId }, { receiverId: userId }] },
+      include: {
+        requester: { select: { id: true, firstName: true, lastName: true, avatarUrl: true, email: true } },
+        receiver: { select: { id: true, firstName: true, lastName: true, avatarUrl: true, email: true } }
+      }
+    });
+
+    const friends = [];
+    const pendingRequests = [];
+
+    friendships.forEach(f => {
+      const isRequester = f.requesterId === userId;
+      const otherUser = isRequester ? f.receiver : f.requester;
+      
+      if (f.status === 'ACCEPTED') {
+        friends.push({ ...otherUser, friendshipId: f.id });
+      } else if (f.status === 'PENDING' && !isRequester) {
+        pendingRequests.push({ ...otherUser, friendshipId: f.id });
+      }
+    });
+
+    res.json({ friends, pendingRequests });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch friends" });
+  }
+});
+
+// Send Friend Request
+app.post('/api/social/friends/request', async (req, res) => {
+  try {
+    const { requesterId, receiverId } = req.body;
+    if (requesterId === receiverId) return res.status(400).json({ error: "Cannot add yourself" });
+
+    const existing = await prisma.friendship.findFirst({
+      where: {
+        OR: [
+          { requesterId, receiverId },
+          { requesterId: receiverId, receiverId: requesterId }
+        ]
+      }
+    });
+
+    if (existing) return res.status(400).json({ error: "Friendship already exists or pending" });
+
+    const friendship = await prisma.friendship.create({
+      data: { requesterId, receiverId, status: 'PENDING' }
+    });
+
+    const requester = await prisma.user.findUnique({ where: { id: requesterId } });
+    
+    const notification = await prisma.notification.create({
+      data: {
+        userId: receiverId,
+        senderId: requesterId,
+        type: 'FRIEND_REQUEST',
+        message: `${requester.firstName} ${requester.lastName} sent you a friend request.`,
+      }
+    });
+
+    io.to(`user_${receiverId}`).emit('receive_notification', notification);
+
+    res.json({ message: "Friend request sent", friendship });
+  } catch (error) {
+    console.error("Friend Request Error:", error);
+    res.status(500).json({ error: "Failed to send request" });
+  }
+});
+
+// Respond to Friend Request (Accept/Decline)
+app.put('/api/social/friends/respond', async (req, res) => {
+  try {
+    const { friendshipId, status } = req.body; 
+    if (status === 'DECLINED') {
+      await prisma.friendship.delete({ where: { id: friendshipId } });
+      return res.json({ message: "Friend request declined" });
+    }
+
+    const friendship = await prisma.friendship.update({
+      where: { id: friendshipId },
+      data: { status: 'ACCEPTED' },
+      include: { receiver: true }
+    });
+
+    const notification = await prisma.notification.create({
+      data: {
+        userId: friendship.requesterId,
+        senderId: friendship.receiverId,
+        type: 'FRIEND_ACCEPTED',
+        message: `${friendship.receiver.firstName} accepted your friend request!`,
+      }
+    });
+
+    io.to(`user_${friendship.requesterId}`).emit('receive_notification', notification);
+
+    res.json({ message: "Friend request accepted" });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to respond" });
+  }
+});
+
+// Unfriend
+app.delete('/api/social/friends/:friendshipId', async (req, res) => {
+  try {
+    await prisma.friendship.delete({ where: { id: req.params.friendshipId } });
+    res.json({ message: "Unfriended successfully" });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to unfriend" });
+  }
+});
+
+// Send Watch Party Invite
+app.post('/api/social/invite', async (req, res) => {
+  try {
+    const { senderId, receiverId, roomId, roomName } = req.body;
+    const sender = await prisma.user.findUnique({ where: { id: senderId } });
+
+    const notification = await prisma.notification.create({
+      data: {
+        userId: receiverId,
+        senderId: senderId,
+        type: 'PARTY_INVITE',
+        message: `${sender.firstName} invited you to join: ${roomName || roomId}`,
+        link: `/party/${roomId}`
+      }
+    });
+
+    io.to(`user_${receiverId}`).emit('receive_notification', notification);
+    res.json({ message: "Invite sent successfully" });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to send invite" });
+  }
+});
+
+app.post('/api/social/notifications', async (req, res) => {
+  try {
+    const { receiverId, senderId, type, message, link } = req.body;
+
+    if (!receiverId || !senderId || !type) {
+      return res.status(400).json({ error: "Missing required fields: receiverId, senderId, type" });
+    }
+
+    const notification = await prisma.notification.create({
+      data: {
+        userId: receiverId,
+        senderId: senderId,
+        type: type,
+        message: message,
+        link: link || null
+      }
+    });
+
+    // Notify user via Socket.io instantly
+    io.to(`user_${receiverId}`).emit('receive_notification', notification);
+
+    res.status(201).json({ message: "Notification created successfully", notification });
+  } catch (error) {
+    console.error("Create Notification Error:", error);
+    res.status(500).json({ error: "Failed to create notification" });
+  }
+});
+
+// Get User Notifications
+app.get('/api/social/notifications/:userId', async (req, res) => {
+  try {
+    const notifications = await prisma.notification.findMany({
+      where: { userId: req.params.userId },
+      orderBy: { createdAt: 'desc' },
+      take: 20
+    });
+    res.json(notifications);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch notifications" });
+  }
+});
+
+// Mark Notification as Read
+app.put('/api/social/notifications/:id/read', async (req, res) => {
+  try {
+    const notif = await prisma.notification.update({
+      where: { id: req.params.id },
+      data: { isRead: true }
+    });
+    res.json(notif);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to mark as read" });
+  }
+});
+
 // WATCH PARTY APIs
 app.post('/api/party/create', async (req, res) => {
   try {
     const { roomId, hostId, roomName } = req.body;
     if (!roomId || !hostId) return res.status(400).json({ error: 'Missing roomId or hostId' });
 
-    if (prisma['watchParty']) {
-      let party = await prisma['watchParty'].findFirst({ where: { roomId } });
+    if (prisma.watchParty) {
+      let party = await prisma.watchParty.findFirst({ where: { roomId } });
       
       if (!party) {
-        party = await prisma['watchParty'].create({
+        party = await prisma.watchParty.create({
           data: { 
             roomId, 
             hostId,
@@ -210,8 +438,8 @@ app.post('/api/party/create', async (req, res) => {
 
 app.get('/api/party/:roomId', async (req, res) => {
   try {
-    if (!prisma['watchParty']) return res.status(404).json({ error: 'Model not found' });
-    const party = await prisma['watchParty'].findFirst({ where: { roomId: req.params.roomId } });
+    if (!prisma.watchParty) return res.status(404).json({ error: 'Model not found' });
+    const party = await prisma.watchParty.findFirst({ where: { roomId: req.params.roomId } });
     if (!party) return res.status(404).json({ error: 'Room not found' });
     return res.status(200).json(party);
   } catch (error) {
@@ -221,11 +449,11 @@ app.get('/api/party/:roomId', async (req, res) => {
 
 app.get('/api/party/:roomId/messages', async (req, res) => {
   try {
-    if (!prisma['watchParty'] || !prisma['partyMessage']) {
+    if (!prisma.watchParty || !prisma.partyMessage) {
       return res.status(200).json([]);
     }
 
-    const party = await prisma['watchParty'].findFirst({
+    const party = await prisma.watchParty.findFirst({
       where: { roomId: req.params.roomId }
     });
 
@@ -233,7 +461,7 @@ app.get('/api/party/:roomId/messages', async (req, res) => {
       return res.status(200).json([]);
     }
 
-    const messages = await prisma['partyMessage'].findMany({
+    const messages = await prisma.partyMessage.findMany({
       where: { partyId: party.id },
       orderBy: { createdAt: 'asc' }
     });
@@ -243,7 +471,7 @@ app.get('/api/party/:roomId/messages', async (req, res) => {
     
     if (userIds.length > 0) {
       try {
-        const users = await prisma['user'].findMany({
+        const users = await prisma.user.findMany({
           where: { id: { in: userIds } },
           select: { id: true, avatarUrl: true }
         });
@@ -274,8 +502,8 @@ app.get('/api/party/:roomId/messages', async (req, res) => {
 
 app.get('/api/user/:userId/parties', async (req, res) => {
   try {
-    if (prisma['watchParty']) {
-      const parties = await prisma['watchParty'].findMany({
+    if (prisma.watchParty) {
+      const parties = await prisma.watchParty.findMany({
         where: {
           OR: [
             { hostId: req.params.userId },
@@ -296,10 +524,10 @@ app.get('/api/user/:userId/parties', async (req, res) => {
 
 app.delete('/api/party/:roomId', async (req, res) => {
   try {
-    if (prisma['watchParty']) {
-      const party = await prisma['watchParty'].findFirst({ where: { roomId: req.params.roomId } });
+    if (prisma.watchParty) {
+      const party = await prisma.watchParty.findFirst({ where: { roomId: req.params.roomId } });
       if (party) {
-        await prisma['watchParty'].delete({
+        await prisma.watchParty.delete({
           where: { id: party.id }
         });
       }
@@ -378,6 +606,35 @@ app.put('/api/user/:id', async (req, res) => {
     res.json(userData);
   } catch (error) {
     res.status(500).json({ error: 'Failed to update profile' });
+  }
+});
+
+// PASSWORD UPDATE API
+app.put('/api/user/:id/password', async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Please provide both current and new passwords' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: req.params.id } });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) return res.status(400).json({ error: 'Incorrect current password' });
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+    await prisma.user.update({
+      where: { id: req.params.id },
+      data: { password: hashedPassword }
+    });
+
+    res.status(200).json({ message: 'Password updated successfully' });
+  } catch (error) {
+    console.error("Password Update Error:", error);
+    res.status(500).json({ error: 'Failed to update password' });
   }
 });
 
@@ -551,9 +808,9 @@ app.get('/api/playlists/:id', async (req, res) => {
 // REVIEW & RATING APIs
 app.get('/api/movies/:tmdbId/reviews', async (req, res) => {
   try {
-    if (!prisma['review']) return res.status(200).json([]);
+    if (!prisma.review) return res.status(200).json([]);
     
-    const reviews = await prisma['review'].findMany({
+    const reviews = await prisma.review.findMany({
       where: { tmdbId: req.params.tmdbId },
       include: { 
         user: { 
@@ -578,13 +835,13 @@ app.post('/api/movies/reviews', async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
     
-    if (prisma['review']) {
-      const existingReview = await prisma['review'].findFirst({
+    if (prisma.review) {
+      const existingReview = await prisma.review.findFirst({
         where: { tmdbId: tmdbId, userId: userId }
       });
       
       if (existingReview) {
-        const updated = await prisma['review'].update({
+        const updated = await prisma.review.update({
           where: { id: existingReview.id },
           data: { rating: parseFloat(rating), content: content || "" },
           include: { user: { select: { firstName: true, lastName: true, avatarUrl: true } } }
@@ -592,7 +849,7 @@ app.post('/api/movies/reviews', async (req, res) => {
         return res.status(200).json(updated);
       }
       
-      const newReview = await prisma['review'].create({
+      const newReview = await prisma.review.create({
         data: { 
           tmdbId: tmdbId, 
           userId: userId, 
@@ -613,8 +870,8 @@ app.post('/api/movies/reviews', async (req, res) => {
 
 app.delete('/api/movies/reviews/:id', async (req, res) => {
   try {
-    if (prisma['review']) {
-      await prisma['review'].delete({ 
+    if (prisma.review) {
+      await prisma.review.delete({ 
         where: { id: req.params.id } 
       });
       return res.status(200).json({ message: 'Review deleted successfully' });

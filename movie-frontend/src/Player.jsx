@@ -655,7 +655,7 @@ export default function Player() {
             <h1 className="text-4xl md:text-5xl font-black mb-4 text-white drop-shadow-md">{movie.title || movie.name}</h1>
             <div className="flex flex-wrap items-center gap-6 text-sm text-gray-300 font-medium">
               <span className="flex items-center bg-gray-800 px-3 py-1 rounded-full text-yellow-400 border border-gray-700">
-                <Star className="w-4 h-4 mr-1 fill-current" /> {movie.voteAverage?.toFixed(1)} TMDB
+                <Star className="w-4 h-4 mr-1 fill-current" /> {movie.voteAverage?.toFixed(1)} 
               </span>
               {reviews.length > 0 && (
                 <span className="flex items-center bg-red-600/10 px-3 py-1 rounded-full text-red-500 border border-red-600/20">
@@ -953,6 +953,7 @@ export default function Player() {
               <h3 className="text-2xl font-bold text-white flex items-center border-l-4 border-red-600 pl-3">
                 <Sparkles className="w-6 h-6 mr-2 text-red-500" /> More Like This
               </h3>
+              
               <div 
                 ref={scrollRef}
                 className="flex overflow-x-auto gap-4 pb-4 custom-scrollbar cursor-grab active:cursor-grabbing select-none"

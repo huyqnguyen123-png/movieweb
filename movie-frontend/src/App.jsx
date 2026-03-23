@@ -7,7 +7,7 @@ import Player from './Player';
 import SearchResults from './SearchResults';
 import PlaylistDetail from './PlaylistDetail'; 
 import AuthPage from './Auth'; 
-import Profile from './Profile'; 
+import Settings from './Settings'; 
 import WatchParty from './WatchParty';
 
 function App() {
@@ -36,7 +36,7 @@ function App() {
             <Route path="/library/:type" element={<PlaylistDetail />} />
             <Route path="/library/playlist/:id" element={<PlaylistDetail />} />
             <Route path="/auth" element={<AuthPage />} />
-            <Route path="/profile" element={<Profile />} /> 
+            <Route path="/settings" element={<Settings />} /> 
           </Routes>
         </main>
       </div>

@@ -2,10 +2,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { io } from 'socket.io-client'; 
 import { 
   Search, Star, X, ArrowRight, History, 
   Menu, Clock, Bookmark, Plus, ListVideo, Trash2, Check,
-  User, LogIn, UserPlus, LogOut, Users 
+  User, LogIn, UserPlus, LogOut, Users, Bell 
 } from 'lucide-react'; 
 import MovieLoader from './MovieLoader'; 
 
@@ -28,9 +29,14 @@ export default function Navbar() {
   const [isCreatingParty, setIsCreatingParty] = useState(false); 
   const [newPartyName, setNewPartyName] = useState(''); 
   
-  // User Menu state
+  // User Menu & Notification states
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const userMenuRef = useRef(null);
+  
+  // Notification States
+  const [notifications, setNotifications] = useState([]);
+  const [showNotifDropdown, setShowNotifDropdown] = useState(false);
+  const notifRef = useRef(null);
 
   // User Authentication state
   const [isLoggedIn, setIsLoggedIn] = useState(false); 
@@ -40,6 +46,8 @@ export default function Navbar() {
   const inputRef = useRef(null); 
   const navigate = useNavigate();
   const location = useLocation();
+
+  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
   // Initial Load and Live Syncing across components
   useEffect(() => {
@@ -59,6 +67,7 @@ export default function Navbar() {
         setIsLoggedIn(false);
         setPlaylists([]); 
         setWatchParties([]); 
+        setNotifications([]); 
         const guestHistory = JSON.parse(localStorage.getItem('movix_history_guest')) || [];
         setSearchHistory(guestHistory);
       }
@@ -76,13 +85,40 @@ export default function Navbar() {
     };
   }, [location.pathname]); 
 
+  // Global Socket Connection for Notifications
+  useEffect(() => {
+    if (!currentUser?.id) return;
+
+    // Fetch initial notifications
+    fetch(`${API_URL}/api/social/notifications/${currentUser.id}`)
+      .then(res => res.json())
+      .then(data => setNotifications(data))
+      .catch(console.error);
+
+    // Connect global socket
+    const socket = io(API_URL);
+    socket.emit('register_global', currentUser.id);
+
+    socket.on('receive_notification', (notif) => {
+      if (notif.type === 'REFRESH_NOTIFICATIONS') {
+        // Tải lại toàn bộ list nếu là lệnh refresh
+        fetch(`${API_URL}/api/social/notifications/${currentUser.id}`)
+          .then(res => res.json())
+          .then(data => setNotifications(data))
+          .catch(console.error);
+      } else {
+        setNotifications(prev => [notif, ...prev]);
+      }
+    });
+
+    return () => socket.disconnect();
+  }, [currentUser?.id, API_URL]);
+
   // Fetch playlists AND watch parties whenever sidebar is opened
   useEffect(() => {
     const fetchSidebarData = async () => {
       if (!currentUser?.id) return;
       try {
-        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-        
         const [playlistsRes, partiesRes] = await Promise.all([
           fetch(`${API_URL}/api/user/${currentUser.id}/playlists`),
           fetch(`${API_URL}/api/user/${currentUser.id}/parties`)
@@ -105,7 +141,7 @@ export default function Navbar() {
     if (isSidebarOpen && isLoggedIn) {
       fetchSidebarData();
     }
-  }, [isSidebarOpen, isLoggedIn, currentUser?.id]);
+  }, [isSidebarOpen, isLoggedIn, currentUser?.id, API_URL]);
 
   // Handle outside clicks to close the search dropdown and user menu
   useEffect(() => {
@@ -115,6 +151,10 @@ export default function Navbar() {
       }
       if (userMenuRef.current && !userMenuRef.current.contains(event.target)) {
         setIsUserMenuOpen(false);
+      }
+      // Close notification dropdown when clicking outside
+      if (notifRef.current && !notifRef.current.contains(event.target)) {
+        setShowNotifDropdown(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -139,7 +179,6 @@ export default function Navbar() {
     }
     const timer = setTimeout(() => {
       setIsSearching(true);
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
       fetch(`${API_URL}/api/movies/search?q=${encodeURIComponent(searchTerm)}`)
         .then(res => res.json())
         .then(data => {
@@ -149,7 +188,7 @@ export default function Navbar() {
         .catch(() => setIsSearching(false));
     }, 500);
     return () => clearTimeout(timer);
-  }, [searchTerm]);
+  }, [searchTerm, API_URL]);
 
   const handleSearchSubmit = (e) => {
     if (e) e.preventDefault();
@@ -170,12 +209,32 @@ export default function Navbar() {
     setShowDropdown(false);
   };
 
+  // Handle reading a notification
+  const handleReadNotification = async (notif) => {
+    if (!notif.isRead) {
+      try {
+        await fetch(`${API_URL}/api/social/notifications/${notif.id}/read`, { method: 'PUT' });
+        setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, isRead: true } : n));
+      } catch (err) { 
+        console.error("Failed to mark notification as read", err); 
+      }
+    }
+    
+    setShowNotifDropdown(false);
+    if (notif.type === 'ROOM_INVITE' && notif.link) {
+      window.location.href = notif.link;
+    } else if (notif.type === 'FRIEND_REQUEST' || notif.type === 'FRIEND_ACCEPTED') {
+      navigate('/settings?tab=friends'); 
+    } else if (notif.link) {
+      window.location.href = notif.link;
+    }
+  };
+
   // Playlist handlers
   const handleCreatePlaylist = async (e) => {
     e.preventDefault();
     if (!newPlaylistName.trim() || !currentUser) return;
     try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
       const res = await fetch(`${API_URL}/api/user/playlists`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -195,7 +254,6 @@ export default function Navbar() {
   const handleDeletePlaylist = async (e, id) => {
     e.stopPropagation(); 
     try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
       const res = await fetch(`${API_URL}/api/user/playlists/${id}`, {
         method: 'DELETE'
       });
@@ -214,7 +272,6 @@ export default function Navbar() {
     
     const newRoomId = Math.random().toString(36).substring(2, 9);
     const finalRoomName = newPartyName.trim() || "My Watch Party"; 
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
     
     try {
       const res = await fetch(`${API_URL}/api/party/create`, {
@@ -234,13 +291,14 @@ export default function Navbar() {
       setIsSidebarOpen(false);
       setIsCreatingParty(false);
       setNewPartyName('');
-      navigate(`/party/${newRoomId}`);
+      // Force reload to clean up states
+      window.location.href = `/party/${newRoomId}`;
       
     } catch (error) {
       console.error("Error creating party:", error);
       setIsSidebarOpen(false);
       setIsCreatingParty(false);
-      navigate(`/party/${newRoomId}`);
+      window.location.href = `/party/${newRoomId}`;
     }
   };
 
@@ -249,7 +307,6 @@ export default function Navbar() {
     const rId = joinRoomId.trim();
     if (rId && currentUser) {
       try {
-        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
         const res = await fetch(`${API_URL}/api/party/create`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -266,12 +323,13 @@ export default function Navbar() {
         }
 
         setIsSidebarOpen(false);
-        navigate(`/party/${rId}`);
         setJoinRoomId('');
+        // Force reload to clean up states
+        window.location.href = `/party/${rId}`;
       } catch (error) {
         console.error("Error joining party:", error);
         setIsSidebarOpen(false);
-        navigate(`/party/${rId}`);
+        window.location.href = `/party/${rId}`;
       }
     }
   };
@@ -279,9 +337,15 @@ export default function Navbar() {
   const handleDeleteParty = async (e, roomId) => {
     e.stopPropagation();
     try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
       const res = await fetch(`${API_URL}/api/party/${roomId}`, { method: 'DELETE' });
-      if (res.ok) setWatchParties(prev => prev.filter(p => p.roomId !== roomId));
+      if (res.ok) {
+        setWatchParties(prev => prev.filter(p => p.roomId !== roomId));
+        if (currentUser) {
+          const tempSocket = io(API_URL);
+          tempSocket.emit('user_deleted_room_history', { roomId, userId: currentUser.id });
+          setTimeout(() => tempSocket.disconnect(), 1000);
+        }
+      }
     } catch (error) {
       console.error("Error deleting party:", error);
     }
@@ -295,6 +359,7 @@ export default function Navbar() {
     setCurrentUser(null);
     setPlaylists([]); 
     setWatchParties([]); 
+    setNotifications([]); 
     const guestHistory = JSON.parse(localStorage.getItem('movix_history_guest')) || [];
     setSearchHistory(guestHistory);
 
@@ -335,6 +400,8 @@ export default function Navbar() {
     
     return defaultPlaceholder;
   };
+
+  const unreadCount = notifications.filter(n => !n.isRead).length;
 
   return (
     <>
@@ -460,86 +527,150 @@ export default function Navbar() {
             </AnimatePresence>
           </div>
 
-          <div className="flex items-center justify-end shrink-0 z-[160] relative lg:min-w-[100px]" ref={userMenuRef}>
-            <button
-              onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-              className="focus:outline-none transition-transform active:scale-90"
-            >
-               {renderAvatar()}
-            </button>
-
-            <AnimatePresence>
-              {isUserMenuOpen && (
-                <motion.div
-                  initial={{ opacity: 0, y: 15, scale: 0.95 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 15, scale: 0.95 }}
-                  transition={{ duration: 0.15 }}
-                  className="absolute top-full right-0 mt-4 w-52 bg-[#1a1a1a] border border-white/10 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8)] py-1 overflow-visible z-[200]"
+          <div className="flex items-center justify-end gap-4 shrink-0 z-[160] relative lg:min-w-[100px]">
+            
+            {/* NOTIFICATION BELL */}
+            {isLoggedIn && (
+              <div className="relative" ref={notifRef}>
+                <button 
+                  onClick={() => setShowNotifDropdown(!showNotifDropdown)}
+                  className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-colors relative"
                 >
-                  <div className="absolute -top-[7px] right-[14px] w-3.5 h-3.5 bg-[#1a1a1a] border-t border-l border-white/10 rotate-45 z-20 rounded-tl-[2px]"></div>
-                  
-                  <div className="relative z-10 bg-transparent flex flex-col">
-                    {isLoggedIn ? (
-                      <>
-                        <div className="px-5 py-4 cursor-default">
-                          <p className="text-[15px] font-bold text-white truncate leading-tight">
-                            {currentUser?.firstName} {currentUser?.lastName}
-                          </p>
-                          <p className="text-xs text-gray-400 mt-1 truncate">
-                            {currentUser?.email}
-                          </p>
-                        </div>
-                        
-                        <div className="h-px bg-white/10 w-full"></div>
-                        
-                        <div className="p-1.5">
+                  <Bell className="w-5 h-5" />
+                  {unreadCount > 0 && (
+                    <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-600 rounded-full border border-[#0a0a0a]"></span>
+                  )}
+                </button>
+
+                <AnimatePresence>
+                  {showNotifDropdown && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 15, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 15, scale: 0.95 }}
+                      transition={{ duration: 0.15 }}
+                      className="absolute top-full right-0 mt-4 w-72 sm:w-80 bg-[#1a1a1a] border border-white/10 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8)] overflow-hidden z-[200]"
+                    >
+                      <div className="px-4 py-3 border-b border-white/10 bg-[#252525] flex justify-between items-center">
+                        <span className="text-sm font-bold text-white">Notifications</span>
+                        <span className="text-[10px] font-bold text-gray-500 bg-black/50 px-2 py-1 rounded-lg">{unreadCount} New</span>
+                      </div>
+                      <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
+                        {notifications.length === 0 ? (
+                          <div className="p-6 text-center text-xs text-gray-500">No notifications yet.</div>
+                        ) : (
+                          notifications.map(notif => (
+                            <div 
+                              key={notif.id} 
+                              onClick={() => handleReadNotification(notif)}
+                              className={`p-4 border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors flex flex-col gap-2 group ${!notif.isRead ? 'bg-red-600/5' : ''}`}
+                            >
+                              <p className={`text-sm ${!notif.isRead ? 'text-white font-bold' : 'text-gray-300'}`}>{notif.message}</p>
+                              
+                              {/* Nút Join Room khi nhận lời mời */}
+                              {notif.type === 'ROOM_INVITE' && notif.link && (
+                                <div className="mt-1 flex gap-2">
+                                  <span className="px-3 py-1.5 bg-indigo-600 group-hover:bg-indigo-500 text-white text-xs font-bold rounded-lg transition-colors shadow-lg shadow-indigo-600/20">
+                                    Join Room
+                                  </span>
+                                </div>
+                              )}
+                              
+                              <p className="text-[10px] text-gray-500 mt-1">{new Date(notif.createdAt).toLocaleString()}</p>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
+
+            {/* USER AVATAR DROPDOWN */}
+            <div className="relative" ref={userMenuRef}>
+              <button
+                onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+                className="focus:outline-none transition-transform active:scale-90"
+              >
+                 {renderAvatar()}
+              </button>
+
+              <AnimatePresence>
+                {isUserMenuOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 15, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 15, scale: 0.95 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute top-full right-0 mt-4 w-52 bg-[#1a1a1a] border border-white/10 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8)] py-1 overflow-visible z-[200]"
+                  >
+                    <div className="absolute -top-[7px] right-[14px] w-3.5 h-3.5 bg-[#1a1a1a] border-t border-l border-white/10 rotate-45 z-20 rounded-tl-[2px]"></div>
+                    
+                    <div className="relative z-10 bg-transparent flex flex-col">
+                      {isLoggedIn ? (
+                        <>
+                          <div className="px-5 py-4 cursor-default">
+                            <p className="text-[15px] font-bold text-white truncate leading-tight">
+                              {currentUser?.firstName} {currentUser?.lastName}
+                            </p>
+                            <p className="text-xs text-gray-400 mt-1 truncate">
+                              {currentUser?.email}
+                            </p>
+                          </div>
+                          
+                          <div className="h-px bg-white/10 w-full"></div>
+                          
+                          <div className="p-1.5">
+                            <Link
+                              to="/settings"
+                              className="flex items-center px-3.5 py-3 text-sm font-bold text-gray-300 hover:text-white hover:bg-white/5 rounded-xl transition-colors"
+                              onClick={() => setIsUserMenuOpen(false)}
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-3 text-gray-400">
+                                <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle>
+                              </svg>
+                              Settings
+                            </Link>
+                          </div>
+
+                          <div className="h-px bg-white/10 w-full"></div>
+                          
+                          <div className="p-1.5">
+                            <button
+                              onClick={handleLogout}
+                              className="w-full flex items-center px-3.5 py-3 text-sm font-bold text-red-500 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-colors"
+                            >
+                              <LogOut className="w-4 h-4 mr-3" />
+                              Log out
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="p-1.5 flex flex-col gap-1">
                           <Link
-                            to="/profile"
-                            className="flex items-center px-3.5 py-3 text-sm font-bold text-gray-300 hover:text-white hover:bg-white/5 rounded-xl transition-colors"
+                            to="/auth?mode=login"
+                            className="flex items-center px-3.5 py-2.5 text-[15px] font-medium text-gray-300 hover:text-white hover:bg-white/5 rounded-xl transition-colors"
                             onClick={() => setIsUserMenuOpen(false)}
                           >
-                            <User className="w-4 h-4 mr-3 text-gray-400" />
-                            Profile
+                            <LogIn className="w-5 h-5 mr-3 text-gray-400" />
+                            Log in
+                          </Link>
+                          <Link
+                            to="/auth?mode=signup"
+                            className="flex items-center px-3.5 py-2.5 text-[15px] font-medium text-gray-300 hover:text-white hover:bg-white/5 rounded-xl transition-colors"
+                            onClick={() => setIsUserMenuOpen(false)}
+                          >
+                            <UserPlus className="w-5 h-5 mr-3 text-gray-400" />
+                            Sign up
                           </Link>
                         </div>
-
-                        <div className="h-px bg-white/10 w-full"></div>
-                        
-                        <div className="p-1.5">
-                          <button
-                            onClick={handleLogout}
-                            className="w-full flex items-center px-3.5 py-3 text-sm font-bold text-red-500 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-colors"
-                          >
-                            <LogOut className="w-4 h-4 mr-3" />
-                            Log out
-                          </button>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="p-1.5 flex flex-col gap-1">
-                        <Link
-                          to="/auth?mode=login"
-                          className="flex items-center px-3.5 py-2.5 text-[15px] font-medium text-gray-300 hover:text-white hover:bg-white/5 rounded-xl transition-colors"
-                          onClick={() => setIsUserMenuOpen(false)}
-                        >
-                          <LogIn className="w-5 h-5 mr-3 text-gray-400" />
-                          Log in
-                        </Link>
-                        <Link
-                          to="/auth?mode=signup"
-                          className="flex items-center px-3.5 py-2.5 text-[15px] font-medium text-gray-300 hover:text-white hover:bg-white/5 rounded-xl transition-colors"
-                          onClick={() => setIsUserMenuOpen(false)}
-                        >
-                          <UserPlus className="w-5 h-5 mr-3 text-gray-400" />
-                          Sign up
-                        </Link>
-                      </div>
-                    )}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           </div>
 
         </div>
@@ -651,7 +782,7 @@ export default function Navbar() {
                             key={party.id}
                             onClick={() => {
                               setIsSidebarOpen(false);
-                              navigate(`/party/${party.roomId}`);
+                              window.location.href = `/party/${party.roomId}`;
                             }}
                             className="flex items-center justify-between px-4 py-2.5 hover:bg-white/5 rounded-xl cursor-pointer group transition-colors"
                           >
