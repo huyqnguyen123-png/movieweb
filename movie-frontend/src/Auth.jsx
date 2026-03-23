@@ -181,14 +181,16 @@ export default function Auth() {
 
     try {
       const endpoint = mode === 'signup' ? '/api/auth/signup' : '/api/auth/login';
-      const response = await fetch(`http://127.0.0.1:5000${endpoint}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json', 
-      },
-      body: JSON.stringify(formData),
-    });
+      const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+      // Dynamically use API_URL
+      const response = await fetch(`${API_URL}${endpoint}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json', 
+        },
+        body: JSON.stringify(formData),
+      });
 
       const data = await response.json();
 
@@ -435,6 +437,7 @@ export default function Auth() {
                           {filteredCountries.length > 0 ? (
                             filteredCountries.map((c) => (
                               <button
+                                anchor={c.f}
                                 key={c.f}
                                 type="button"
                                 onClick={() => handleCountrySelect(c.n, c.f, c.code)}
