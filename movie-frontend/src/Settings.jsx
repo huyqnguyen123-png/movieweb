@@ -436,8 +436,7 @@ export default function Settings() {
         </div>
 
         <div className="flex flex-col md:flex-row gap-8 items-start">
-          
-          <div className="w-full md:w-72 shrink-0 bg-[#121212]/50 backdrop-blur-xl border border-white/5 p-5 rounded-3xl shadow-2xl flex flex-row md:flex-col gap-2 overflow-x-auto md:overflow-visible custom-scrollbar">
+          <div className="w-full md:w-72 shrink-0 bg-[#121212]/50 backdrop-blur-xl border border-white/5 p-5 rounded-3xl shadow-2xl flex flex-row md:flex-col gap-2 overflow-x-auto md:overflow-visible scrollbar-hide">
             <h3 className="text-xs font-black text-gray-500 uppercase tracking-widest mb-2 px-3 hidden md:block">User Settings</h3>
             {SETTING_TABS.map(tab => {
               const isActive = activeTab === tab.id;
@@ -919,7 +918,14 @@ export default function Settings() {
         )}
       </AnimatePresence>
 
-      <style>{`.custom-scrollbar::-webkit-scrollbar { height: 4px; width: 4px; }.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }.custom-scrollbar::-webkit-scrollbar-thumb { background: #374151; border-radius: 10px; }`}</style>
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar { height: 4px; width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #374151; border-radius: 10px; }
+        
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+      `}</style>
     </div>
   );
 }

@@ -86,42 +86,42 @@ const MovieCategory = ({ title, genreId, isTrending = false }) => {
   if (movies.length === 0) return null;
 
   return (
-    <section className="px-8 pb-10 max-w-7xl mx-auto relative">
-      <h2 className={`select-none text-2xl font-bold mb-6 text-white border-l-4 ${isTrending ? 'border-yellow-500' : 'border-gray-500'} pl-3 uppercase tracking-wide flex items-center gap-2`}>
+    <section className="px-4 md:px-8 pb-10 max-w-7xl mx-auto relative">
+      <h2 className={`select-none text-xl md:text-2xl font-bold mb-4 md:mb-6 text-white border-l-4 ${isTrending ? 'border-yellow-500' : 'border-gray-500'} pl-3 uppercase tracking-wide flex items-center gap-2`}>
         {title}
       </h2>
       
-      <div ref={rowRef} className="flex gap-5 overflow-x-auto scrollbar-hide pb-4">
+      <div ref={rowRef} className="flex gap-4 md:gap-5 overflow-x-auto scrollbar-hide pb-4">
         {movies.map(movie => (
           <Link 
             to={`/watch/${movie.id}?type=${movie.mediaType || 'movie'}`} 
             key={`row-${genreId || 'trending'}-${movie.id}`} 
-            className="group/card relative overflow-hidden rounded-xl shadow-xl hover:-translate-y-2 transition-transform duration-300 border border-gray-800 w-[160px] sm:w-[200px] shrink-0"
+            className="group/card relative overflow-hidden rounded-xl shadow-xl hover:-translate-y-2 transition-transform duration-300 border border-gray-800 w-[140px] sm:w-[160px] md:w-[200px] shrink-0"
           >
             <img 
               src={movie.posterPath || ""} 
               alt={movie.title} 
-              className="w-full h-[240px] sm:h-[300px] object-cover pointer-events-none bg-gray-900" 
+              className="w-full h-[210px] sm:h-[240px] md:h-[300px] object-cover pointer-events-none bg-gray-900" 
               onError={(e) => { e.target.src = 'https://via.placeholder.com/500x750?text=No+Image'; }}
             />
             
-            <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/40 to-transparent flex flex-col justify-end p-4 opacity-0 group-hover/card:opacity-100 transition-all duration-300">
+            <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/40 to-transparent flex flex-col justify-end p-3 md:p-4 opacity-0 group-hover/card:opacity-100 transition-all duration-300">
               <div className="transform translate-y-4 group-hover/card:translate-y-0 transition-transform duration-300">
-                <h3 className="font-bold text-sm md:text-base text-white line-clamp-2 leading-tight">
+                <h3 className="font-bold text-xs sm:text-sm md:text-base text-white line-clamp-2 leading-tight">
                   {movie.title}
                 </h3>
                 
-                <div className="flex items-center justify-between mt-1.5 mb-3">
-                  <div className="flex items-center text-yellow-400 text-xs md:text-sm font-bold">
-                    <Star className="w-3.5 h-3.5 fill-current mr-1" /> {movie.voteAverage?.toFixed(1)}
+                <div className="flex items-center justify-between mt-1.5 mb-2 md:mb-3">
+                  <div className="flex items-center text-yellow-400 text-[10px] sm:text-xs md:text-sm font-bold">
+                    <Star className="w-3 h-3 md:w-3.5 md:h-3.5 fill-current mr-1" /> {movie.voteAverage?.toFixed(1)}
                   </div>
-                  <span className="text-[10px] text-gray-400 font-medium">
+                  <span className="text-[9px] sm:text-[10px] text-gray-400 font-medium">
                     {movie.releaseDate?.split('-')[0]}
                   </span>
                 </div>
 
-                <div className="bg-red-600 text-white text-sm font-bold rounded-full py-1.5 px-4 flex items-center justify-center w-full transition-colors duration-200 hover:bg-red-500 shadow-lg">
-                  <Play className="w-4 h-4 fill-current mr-1.5" /> Play
+                <div className="bg-red-600 text-white text-xs md:text-sm font-bold rounded-full py-1.5 px-3 md:px-4 flex items-center justify-center w-full transition-colors duration-200 hover:bg-red-500 shadow-lg">
+                  <Play className="w-3 h-3 md:w-4 md:h-4 fill-current mr-1 md:mr-1.5" /> Play
                 </div>
               </div>
             </div>
@@ -220,18 +220,44 @@ export default function Home() {
         .custom-prev.swiper-button-disabled, .custom-next.swiper-button-disabled { opacity: 0.2; cursor: not-allowed; transform: none !important; }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        /* Custom Swiper Slide Widths for Responsive Coverflow */
+        .coverflow-slide {
+          width: 240px !important; /* Mobile Portrait Width */
+          height: 360px !important; /* Mobile Portrait Height */
+        }
+        
+        @media (min-width: 768px) {
+          .coverflow-slide {
+             width: 600px !important; /* Desktop Landscape Width */
+             height: 340px !important; /* Desktop Landscape Height */
+          }
+        }
+        
+        @media (min-width: 1024px) {
+          .coverflow-slide {
+             width: 700px !important; /* Large Desktop Width */
+             height: 394px !important; /* Large Desktop Height */
+          }
+        }
       `}</style>
 
-      <section className="w-full pt-10">
-        <div className="px-8 max-w-7xl mx-auto">
-          <h2 className="select-none text-2xl font-bold mb-6 text-white border-l-4 border-red-600 pl-3 uppercase tracking-wide">
+      <section className="w-full pt-6 md:pt-10">
+        <div className="px-4 md:px-8 max-w-7xl mx-auto">
+          <h2 className="select-none text-xl md:text-2xl font-bold mb-4 md:mb-6 text-white border-l-4 border-red-600 pl-3 uppercase tracking-wide">
             New Arrivals
           </h2>
         </div>
         
-        <div className="relative max-w-7xl mx-auto px-16">
-          <button className="custom-prev absolute left-0 top-1/2 -translate-y-1/2 z-20 text-white/50 hover:text-white transition-all duration-300 hover:scale-125"><ChevronLeft size={60} strokeWidth={1} /></button>
-          <button className="custom-next absolute right-0 top-1/2 -translate-y-1/2 z-20 text-white/50 hover:text-white transition-all duration-300 hover:scale-125"><ChevronRight size={60} strokeWidth={1} /></button>
+        <div className="relative max-w-7xl mx-auto px-0 md:px-16">
+          
+          {/* HIDDEN ON MOBILE: Navigation Arrows */}
+          <button className="hidden md:block custom-prev absolute left-0 top-1/2 -translate-y-1/2 z-20 text-white/50 hover:text-white transition-all duration-300 hover:scale-125">
+            <ChevronLeft size={60} strokeWidth={1} />
+          </button>
+          <button className="hidden md:block custom-next absolute right-0 top-1/2 -translate-y-1/2 z-20 text-white/50 hover:text-white transition-all duration-300 hover:scale-125">
+            <ChevronRight size={60} strokeWidth={1} />
+          </button>
 
           <Swiper
             effect={'coverflow'}
@@ -240,31 +266,47 @@ export default function Home() {
             slidesPerView={'auto'}
             loop={true}
             autoplay={{ delay: 3000, disableOnInteraction: false }}
-            coverflowEffect={{ rotate: 0, stretch: 50, depth: 200, modifier: 1, slideShadows: false }}
+            coverflowEffect={{ rotate: 0, stretch: 30, depth: 150, modifier: 1, slideShadows: false }}
             navigation={{ prevEl: '.custom-prev', nextEl: '.custom-next' }}
             modules={[EffectCoverflow, Pagination, Navigation, Autoplay]}
-            className="w-full py-10"
+            className="w-full py-6 md:py-10"
           >
             {newestMovies.map((movie) => {
-              const validImg = movie.backdropPath && !movie.backdropPath.includes('null') 
-                               ? movie.backdropPath 
-                               : movie.posterPath;
+              // Use Backdrop for Desktop, Use Poster for Mobile
+              const mobileImg = movie.posterPath;
+              const desktopImg = (movie.backdropPath && !movie.backdropPath.includes('null')) ? movie.backdropPath : movie.posterPath;
 
               return (
-                <SwiperSlide key={`hero-${movie.id}`} style={{ width: '650px', maxWidth: '85vw' }}>
+                <SwiperSlide key={`hero-${movie.id}`} className="coverflow-slide">
                   {({ isActive }) => (
-                    <div className={`relative w-full aspect-video rounded-2xl overflow-hidden transition-all duration-500 bg-gray-900 ${isActive ? 'group' : ''}`}>
-                      <img 
-                        src={validImg} 
-                        alt="" 
-                        className="w-full h-full object-cover" 
-                        onError={(e) => { e.target.src = 'https://via.placeholder.com/1280x720?text=Image+Coming+Soon'; }}
-                      />
-                      <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
-                      <div className="absolute bottom-6 left-6 right-6 transform translate-y-10 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-500 z-10">
-                        <div className="bg-white/95 backdrop-blur-md rounded-2xl p-4 flex flex-col items-center shadow-2xl">
-                          <h3 className="text-gray-900 font-black text-xl mb-3 text-center truncate w-full px-2">{movie.title}</h3>
-                          <Link to={`/watch/${movie.id}?type=${movie.mediaType || 'movie'}`} className="bg-red-600 hover:bg-red-500 text-white font-bold rounded-full px-8 py-2 flex items-center shadow-md transition-all"><Play className="w-4 h-4 fill-current mr-2" /> Play Now</Link>
+                    <div className={`relative w-full h-full rounded-xl md:rounded-2xl overflow-hidden transition-all duration-500 bg-gray-900 shadow-2xl ${isActive ? 'group ring-2 ring-red-600/50 md:ring-0' : ''}`}>
+                      
+                      {/* Responsive Image Loading */}
+                      <picture>
+                        <source media="(min-width: 768px)" srcSet={desktopImg} />
+                        <img 
+                          src={mobileImg} 
+                          alt={movie.title} 
+                          className="w-full h-full object-cover" 
+                          onError={(e) => { e.target.src = 'https://via.placeholder.com/1280x720?text=Image+Coming+Soon'; }}
+                        />
+                      </picture>
+
+                      {/* Overlay Gradients */}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-500"></div>
+                      
+                      {/* Content Box */}
+                      <div className="absolute bottom-4 left-4 right-4 md:bottom-6 md:left-6 md:right-6 transform md:translate-y-10 opacity-100 md:opacity-0 md:group-hover:translate-y-0 md:group-hover:opacity-100 transition-all duration-500 z-10 flex flex-col items-center">
+                        <div className="bg-black/40 md:bg-white/95 backdrop-blur-md rounded-xl md:rounded-2xl p-3 md:p-4 flex flex-col items-center w-full max-w-[90%] md:max-w-md md:shadow-2xl border border-white/10 md:border-none">
+                          <h3 className="text-white md:text-gray-900 font-black text-lg md:text-xl mb-2 md:mb-3 text-center truncate w-full px-2 drop-shadow-md md:drop-shadow-none">
+                            {movie.title}
+                          </h3>
+                          <Link 
+                            to={`/watch/${movie.id}?type=${movie.mediaType || 'movie'}`} 
+                            className="bg-red-600 hover:bg-red-500 text-white font-bold rounded-full px-6 md:px-8 py-2 md:py-2.5 flex items-center shadow-md transition-all text-sm md:text-base w-full justify-center md:w-auto"
+                          >
+                            <Play className="w-4 h-4 fill-current mr-2" /> Play Now
+                          </Link>
                         </div>
                       </div>
                     </div>
