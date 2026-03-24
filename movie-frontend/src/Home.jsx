@@ -240,7 +240,7 @@ export default function Home() {
         }
       `}</style>
 
-      <section className="w-full pt-6 md:pt-10">
+      <section className="w-full pt-1 md:pt-3">
         <div className="px-4 md:px-8 max-w-7xl mx-auto">
           <h2 className="select-none text-xl md:text-2xl font-bold mb-4 md:mb-6 text-white border-l-4 border-red-600 pl-3 uppercase tracking-wide">
             New Arrivals

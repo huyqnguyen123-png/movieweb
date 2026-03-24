@@ -57,6 +57,9 @@ export default function WatchParty() {
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [myFriends, setMyFriends] = useState([]);
   const [isFetchingFriends, setIsFetchingFriends] = useState(false);
+  
+  const RAW_API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+  const API_URL = RAW_API_URL.endsWith('/') ? RAW_API_URL.slice(0, -1) : RAW_API_URL;
 
   // Initialize invitedFriends from localStorage
   const [invitedFriends, setInvitedFriends] = useState(() => {
@@ -72,8 +75,6 @@ export default function WatchParty() {
   const peerInstance = useRef(null);
   const userAudioStream = useRef(null);
   const callsRef = useRef({});
-
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
   const currentUser = useMemo(() => {
     const storedUser = localStorage.getItem('currentUser');
@@ -164,7 +165,10 @@ export default function WatchParty() {
     };
     fetchPartyDetails();
 
-    const newSocket = io(API_URL);
+    const newSocket = io(API_URL, {
+      transports: ['websocket', 'polling'],
+    });
+    
     setSocket(newSocket);
 
     newSocket.on('connect', () => {
@@ -845,17 +849,17 @@ export default function WatchParty() {
                           </div>
                           
                           {isOnlineInRoom ? (
-                             <button disabled className="px-5 py-2.5 text-xs font-bold rounded-xl flex items-center gap-1.5 bg-[#2a2a2c] text-gray-300 cursor-not-allowed">
-                               <Users className="w-3.5 h-3.5" /> In Room
-                             </button>
+                              <button disabled className="px-5 py-2.5 text-xs font-bold rounded-xl flex items-center gap-1.5 bg-[#2a2a2c] text-gray-300 cursor-not-allowed">
+                                <Users className="w-3.5 h-3.5" /> In Room
+                              </button>
                           ) : isInvited ? (
-                             <button disabled className="px-5 py-2.5 text-xs font-bold rounded-xl flex items-center gap-1.5 bg-[#162f1f] text-[#4ade80] cursor-not-allowed border border-[#4ade80]/10">
-                               <Check className="w-3.5 h-3.5" /> Sent
-                             </button>
+                              <button disabled className="px-5 py-2.5 text-xs font-bold rounded-xl flex items-center gap-1.5 bg-[#162f1f] text-[#4ade80] cursor-not-allowed border border-[#4ade80]/10">
+                                <Check className="w-3.5 h-3.5" /> Sent
+                              </button>
                           ) : (
-                             <button onClick={() => sendInviteToFriend(friend)} className="px-5 py-2.5 text-xs font-bold rounded-xl flex items-center gap-1.5 bg-[#4f46e5] hover:bg-[#4338ca] text-white shadow-[0_0_15px_rgba(79,70,229,0.4)] transition-all">
-                               Invite
-                             </button>
+                              <button onClick={() => sendInviteToFriend(friend)} className="px-5 py-2.5 text-xs font-bold rounded-xl flex items-center gap-1.5 bg-[#4f46e5] hover:bg-[#4338ca] text-white shadow-[0_0_15px_rgba(79,70,229,0.4)] transition-all">
+                                Invite
+                              </button>
                           )}
                         </div>
                       )
