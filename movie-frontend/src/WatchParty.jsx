@@ -62,7 +62,13 @@ export default function WatchParty() {
   const [myFriends, setMyFriends] = useState([]);
   const [isFetchingFriends, setIsFetchingFriends] = useState(false);
   
-  const RAW_API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+  const ENV_URL = import.meta.env.VITE_API_URL;
+  const RAW_API_URL = ENV_URL 
+    ? ENV_URL 
+    : (window.location.hostname === 'localhost' 
+        ? 'http://localhost:5000' 
+        : 'https://movixbackend-efpd.onrender.com');
+
   const API_URL = RAW_API_URL.endsWith('/') ? RAW_API_URL.slice(0, -1) : RAW_API_URL;
 
   // Initialize invitedFriends from localStorage
