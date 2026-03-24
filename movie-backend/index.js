@@ -132,7 +132,7 @@ io.on('connection', (socket) => {
 
   socket.on('send_message', async (data) => {
     if (!data.message || data.message.trim() === '') return;
-
+    socket.to(data.roomId).emit('receive_message', data);
     try {
       if (prisma.watchParty && prisma.partyMessage) {
         let party = await prisma.watchParty.findFirst({ 
@@ -150,7 +150,7 @@ io.on('connection', (socket) => {
         }
         
         if (party) {
-          const savedMsg = await prisma.partyMessage.create({
+          await prisma.partyMessage.create({
             data: {
               partyId: party.id,
               userId: data.userId || null,
@@ -160,18 +160,10 @@ io.on('connection', (socket) => {
               type: data.type || 'chat'
             }
           });
-          
-          const messageToBroadcast = {
-            ...data,
-            id: savedMsg.id, 
-            timestamp: savedMsg.createdAt
-          };
-
-          io.to(data.roomId).emit('receive_message', messageToBroadcast);
         }
       }
     } catch (err) {
-      console.error("❌ DB Message Error:", err.message);
+      console.error("❌ DB Message Save Error:", err.message);
     }
   });
 

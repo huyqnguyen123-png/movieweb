@@ -4,7 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import { Peer } from 'peerjs'; 
 import { motion, AnimatePresence } from 'framer-motion'; 
-import { Send, Search, Users, Copy, Check, ArrowLeft, PlayCircle, Film, User, Shield, Mic, MicOff, Phone, PhoneOff, UserPlus, Link2, X, Loader2 } from 'lucide-react';
+import { Send, Search, Users, Copy, Check, ArrowLeft, PlayCircle, Film, User, Shield, Mic, MicOff, Phone, PhoneOff, UserPlus, Link2, X, Loader2, Wifi, WifiOff } from 'lucide-react';
 import MovieLoader from './MovieLoader';
 
 // Component to render invisible audio streams with Volume & Speaker settings
@@ -30,6 +30,10 @@ export default function WatchParty() {
   const navigate = useNavigate();
   const [socket, setSocket] = useState(null);
   
+  // SOCKET CONNECTION STATUS
+  const [isSocketConnected, setIsSocketConnected] = useState(false);
+  const [socketError, setSocketError] = useState("");
+
   // Chat States
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState("");
@@ -136,6 +140,9 @@ export default function WatchParty() {
       navigate('/auth?mode=login');
       return;
     }
+    if (window.location.hostname !== 'localhost' && API_URL.includes('localhost')) {
+      alert("LỖI NGHIÊM TRỌNG: Vercel vẫn đang kết nối nhầm vào localhost! Hãy kiểm tra lại biến VITE_API_URL trên Vercel và Redeploy.");
+    }
 
     // FETCH EXISTING CHAT HISTORY FROM DATABASE 
     const fetchChatHistory = async () => {
@@ -165,14 +172,31 @@ export default function WatchParty() {
     };
     fetchPartyDetails();
 
+    console.log("Connecting Socket.io to:", API_URL);
     const newSocket = io(API_URL, {
-      transports: ['websocket', 'polling'],
+      transports: ['websocket', 'polling'], 
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
     });
     
     setSocket(newSocket);
 
     newSocket.on('connect', () => {
+      console.log('✅ Socket connected securely! ID:', newSocket.id);
+      setIsSocketConnected(true);
+      setSocketError("");
       newSocket.emit('join_party', { roomId, user: currentUser });
+    });
+
+    newSocket.on('connect_error', (err) => {
+      console.error('❌ Socket connection error:', err.message);
+      setIsSocketConnected(false);
+      setSocketError(err.message);
+    });
+
+    newSocket.on('disconnect', () => {
+      console.warn('⚠️ Socket disconnected!');
+      setIsSocketConnected(false);
     });
 
     newSocket.on('receive_message', (data) => {
@@ -267,9 +291,13 @@ export default function WatchParty() {
   // HANDLE SENDING MESSAGES
   const handleSendMessage = (e) => {
     e.preventDefault();
-    if (!newMessage.trim() || !socket) return;
+    if (!newMessage.trim() || !socket || !isSocketConnected) {
+      if (!isSocketConnected) showToast("You are disconnected from the server. Please wait.");
+      return;
+    }
 
     const messageData = {
+      id: `temp_${Date.now()}`, 
       type: 'chat', 
       roomId,
       userId: currentUser.id, 
@@ -279,6 +307,7 @@ export default function WatchParty() {
       timestamp: new Date().toISOString()
     };
 
+    setMessages((prev) => [...prev, messageData]);
     socket.emit('send_message', messageData);
     setNewMessage("");
   };
@@ -298,7 +327,7 @@ export default function WatchParty() {
       episode: 1 
     };
     
-    socket.emit('sync_media', mediaData);
+    if (socket && isSocketConnected) socket.emit('sync_media', mediaData);
     setCurrentMedia(mediaData);
     setSearchResults([]);
     setSearchTerm("");
@@ -355,7 +384,7 @@ export default function WatchParty() {
         setInvitedFriends(prev => [...prev, friend.id]);
         showToast(`Invited ${friend.firstName}!`);
         
-        if (socket) {
+        if (socket && isSocketConnected) {
            socket.emit('send_global_notification', { receiverId: friend.id });
         }
       } else if (res.status === 404) {
@@ -363,7 +392,7 @@ export default function WatchParty() {
         setInvitedFriends(prev => [...prev, friend.id]);
         showToast(`Invited ${friend.firstName}! (Live only)`);
         
-        if (socket) {
+        if (socket && isSocketConnected) {
            socket.emit('send_global_notification', { 
              receiverId: friend.id,
              type: 'ROOM_INVITE',
@@ -402,7 +431,7 @@ export default function WatchParty() {
       setRemoteAudioStreams({});
       setIsVoiceActive(false);
       setIsMuted(false);
-      if (socket) {
+      if (socket && isSocketConnected) {
          socket.emit('leave_voice', { roomId, peerId: peerInstance.current?.id });
       }
       showToast("Left Voice Chat");
@@ -438,7 +467,7 @@ export default function WatchParty() {
         });
 
         peer.on('open', (id) => {
-          socket.emit('join_voice', { roomId, peerId: id });
+          if (socket && isSocketConnected) socket.emit('join_voice', { roomId, peerId: id });
         });
 
         // Answer incoming calls
@@ -664,9 +693,14 @@ export default function WatchParty() {
 
       {/* RIGHT PANEL: LIVE CHAT & VOICE */}
       <div className="w-full xl:w-80 2xl:w-96 flex flex-col bg-gray-900/60 border border-gray-800 rounded-2xl overflow-hidden h-[600px] xl:h-auto">
-        <div className="p-4 bg-black/40 border-b border-gray-800 shrink-0 flex items-center justify-between">
+        <div className="p-4 bg-black/40 border-b border-gray-800 shrink-0 flex items-center justify-between">   
           <h2 className="text-sm font-black text-white uppercase tracking-widest flex items-center">
-            <span className="w-2 h-2 rounded-full bg-green-500 mr-2 animate-pulse"></span> Live Chat
+            {isSocketConnected ? (
+              <Wifi className="w-4 h-4 text-green-500 mr-2" />
+            ) : (
+              <WifiOff className="w-4 h-4 text-red-500 mr-2" />
+            )}
+            Live Chat
           </h2>
 
           {/* VOICE CHAT UI */}
@@ -696,6 +730,13 @@ export default function WatchParty() {
             </button>
           </div>
         </div>
+
+        {/* CONNECTION ERROR MESSAGE */}
+        {!isSocketConnected && (
+          <div className="bg-red-500/10 border-b border-red-500/20 p-2 text-center text-xs font-bold text-red-400">
+            {socketError ? `Connection Error: ${socketError}` : "Connecting to live server..."}
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
           {messages.length === 0 && (
@@ -765,9 +806,14 @@ export default function WatchParty() {
               value={newMessage} 
               onChange={(e) => setNewMessage(e.target.value)} 
               placeholder="Type a message..." 
-              className="flex-1 bg-gray-900 border border-gray-700 text-white rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:border-indigo-500"
+              disabled={!isSocketConnected}
+              className="flex-1 bg-gray-900 border border-gray-700 text-white rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:border-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
             />
-            <button type="submit" className="p-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl transition-colors">
+            <button 
+              type="submit" 
+              disabled={!isSocketConnected}
+              className="p-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
               <Send className="w-4 h-4" />
             </button>
           </form>
@@ -876,5 +922,3 @@ export default function WatchParty() {
     </div>
   );
 }
-
-// ep vercel build lai de nhan link backend
