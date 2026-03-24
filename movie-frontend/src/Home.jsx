@@ -9,6 +9,11 @@ import 'swiper/css/effect-coverflow';
 import 'swiper/css/pagination';
 import 'swiper/css/navigation';
 
+let API_URL = 'https://movixbackend-efpd.onrender.com';
+if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+  API_URL = 'http://localhost:5000';
+}
+
 // Reusable component for movie rows
 const MovieCategory = ({ title, genreId, isTrending = false }) => {
   const [movies, setMovies] = useState([]);
@@ -16,8 +21,6 @@ const MovieCategory = ({ title, genreId, isTrending = false }) => {
 
   useEffect(() => {
     const fetchMovies = () => {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      
       const fetchUrl = isTrending 
         ? `${API_URL}/api/movies/trending` 
         : `${API_URL}/api/movies/genre/${genreId}`;
@@ -142,7 +145,6 @@ export default function Home() {
       setError(null);
       
       try {
-        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
         const res = await fetch(`${API_URL}/api/movies`);
         
         if (!res.ok) {

@@ -62,14 +62,10 @@ export default function WatchParty() {
   const [myFriends, setMyFriends] = useState([]);
   const [isFetchingFriends, setIsFetchingFriends] = useState(false);
   
-  const ENV_URL = import.meta.env.VITE_API_URL;
-  const RAW_API_URL = ENV_URL 
-    ? ENV_URL 
-    : (window.location.hostname === 'localhost' 
-        ? 'http://localhost:5000' 
-        : 'https://movixbackend-efpd.onrender.com');
-
-  const API_URL = RAW_API_URL.endsWith('/') ? RAW_API_URL.slice(0, -1) : RAW_API_URL;
+  let API_URL = 'https://movixbackend-efpd.onrender.com';
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    API_URL = 'http://localhost:5000';
+  }
 
   // Initialize invitedFriends from localStorage
   const [invitedFriends, setInvitedFriends] = useState(() => {
@@ -145,9 +141,6 @@ export default function WatchParty() {
     if (!currentUser) {
       navigate('/auth?mode=login');
       return;
-    }
-    if (window.location.hostname !== 'localhost' && API_URL.includes('localhost')) {
-      alert("LỖI NGHIÊM TRỌNG: Vercel vẫn đang kết nối nhầm vào localhost! Hãy kiểm tra lại biến VITE_API_URL trên Vercel và Redeploy.");
     }
 
     // FETCH EXISTING CHAT HISTORY FROM DATABASE 
@@ -699,7 +692,7 @@ export default function WatchParty() {
 
       {/* RIGHT PANEL: LIVE CHAT & VOICE */}
       <div className="w-full xl:w-80 2xl:w-96 flex flex-col bg-gray-900/60 border border-gray-800 rounded-2xl overflow-hidden h-[600px] xl:h-auto">
-        <div className="p-4 bg-black/40 border-b border-gray-800 shrink-0 flex items-center justify-between">   
+        <div className="p-4 bg-black/40 border-b border-gray-800 shrink-0 flex items-center justify-between">
           <h2 className="text-sm font-black text-white uppercase tracking-widest flex items-center">
             {isSocketConnected ? (
               <Wifi className="w-4 h-4 text-green-500 mr-2" />

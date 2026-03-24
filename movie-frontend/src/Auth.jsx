@@ -128,6 +128,11 @@ export default function Auth() {
     confirmPassword: ''
   });
 
+  let API_URL = 'https://movixbackend-efpd.onrender.com';
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    API_URL = 'http://localhost:5000';
+  }
+
   useEffect(() => {
     const urlMode = searchParams.get('mode');
     if (urlMode === 'signup' || urlMode === 'login') {
@@ -181,8 +186,6 @@ export default function Auth() {
 
     try {
       const endpoint = mode === 'signup' ? '/api/auth/signup' : '/api/auth/login';
-      const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
-      // Dynamically use API_URL
       const response = await fetch(`${API_URL}${endpoint}`, {
         method: 'POST',
         headers: {
