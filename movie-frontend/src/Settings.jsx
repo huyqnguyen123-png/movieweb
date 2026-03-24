@@ -23,7 +23,9 @@ export default function Settings() {
   ];
 
   const fileInputRef = useRef(null);
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+  // Cập nhật API_URL cứng để tránh lỗi localhost
+  const API_URL = 'https://movixbackend-efpd.onrender.com';
+  
   const [user, setUser] = useState({
     id: '', firstName: '', lastName: '', email: '', phone: '', country: '', avatarUrl: null 
   });
@@ -140,7 +142,7 @@ export default function Settings() {
     return () => {
       socket.disconnect();
     };
-  }, [user.id, activeTab]);
+  }, [user.id, activeTab, API_URL]);
 
   useEffect(() => {
     if (searchResult) {
@@ -149,7 +151,7 @@ export default function Settings() {
         setSearchResult(prev => ({ ...prev, isFriend: true, requestSent: false }));
       }
     }
-  }, [friendsList]);
+  }, [friendsList, searchResult]);
 
   const handleTabSwitch = (tabId) => {
     if (activeTab === 'voice' && tabId !== 'voice') stopMicTest();
@@ -442,10 +444,10 @@ export default function Settings() {
 
   const renderMiniAvatar = (url) => {
     if (url && url !== "null") {
-      return <img src={url} alt="avatar" className="w-10 h-10 rounded-full object-cover border border-white/10" />;
+      return <img src={url} alt="avatar" className="w-10 h-10 rounded-full object-cover border border-white/10 shrink-0" />;
     }
     return (
-      <div className="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center border border-white/10">
+      <div className="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center border border-white/10 shrink-0">
         <User className="w-5 h-5 text-gray-400" />
       </div>
     );
@@ -799,31 +801,33 @@ export default function Settings() {
                     )}
 
                     {searchResult && (
-                      <div className="mt-6 flex items-center justify-between bg-black/40 border border-white/10 p-4 rounded-2xl">
-                        <div className="flex items-center gap-4">
+                      <div className="mt-6 flex flex-col sm:flex-row items-center justify-between bg-black/40 border border-white/10 p-4 rounded-2xl gap-4">
+                        <div className="flex items-center gap-4 w-full sm:w-auto">
                           {renderMiniAvatar(searchResult.avatarUrl)}
-                          <div>
-                            <p className="font-bold text-white text-sm">{searchResult.firstName} {searchResult.lastName}</p>
-                            <p className="text-xs text-gray-500">{searchResult.email}</p>
+                          <div className="min-w-0 overflow-hidden">
+                            <p className="font-bold text-white text-sm truncate">{searchResult.firstName} {searchResult.lastName}</p>
+                            <p className="text-xs text-gray-500 truncate">{searchResult.email}</p>
                           </div>
                         </div>
                         
-                        {searchResult.isFriend ? (
-                          <button disabled className="px-4 py-2 bg-green-500/10 text-green-500 border border-green-500/20 text-xs font-bold rounded-xl flex items-center gap-2 cursor-not-allowed">
-                            <UserCheck className="w-4 h-4" /> Friends
-                          </button>
-                        ) : searchResult.requestSent ? (
-                          <button disabled className="px-4 py-2 bg-white/5 text-gray-400 border border-white/10 text-xs font-bold rounded-xl flex items-center gap-2 cursor-not-allowed">
-                            <Clock className="w-4 h-4" /> Pending
-                          </button>
-                        ) : (
-                          <button 
-                            onClick={() => sendFriendRequest(searchResult.id)} 
-                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl flex items-center gap-2 transition-colors shadow-lg shadow-indigo-600/30"
-                          >
-                            <UserPlus className="w-4 h-4" /> Send Request
-                          </button>
-                        )}
+                        <div className="w-full sm:w-auto shrink-0">
+                          {searchResult.isFriend ? (
+                            <button disabled className="w-full sm:w-auto px-4 py-2 bg-green-500/10 text-green-500 border border-green-500/20 text-xs font-bold rounded-xl flex items-center justify-center gap-2 cursor-not-allowed">
+                              <UserCheck className="w-4 h-4" /> Friends
+                            </button>
+                          ) : searchResult.requestSent ? (
+                            <button disabled className="w-full sm:w-auto px-4 py-2 bg-white/5 text-gray-400 border border-white/10 text-xs font-bold rounded-xl flex items-center justify-center gap-2 cursor-not-allowed">
+                              <Clock className="w-4 h-4" /> Pending
+                            </button>
+                          ) : (
+                            <button 
+                              onClick={() => sendFriendRequest(searchResult.id)} 
+                              className="w-full sm:w-auto px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-colors shadow-lg shadow-indigo-600/30"
+                            >
+                              <UserPlus className="w-4 h-4" /> Send Request
+                            </button>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -835,28 +839,28 @@ export default function Settings() {
                       </h2>
                       <div className="space-y-3">
                         {pendingRequests.map(req => (
-                          <div key={req.friendshipId} className="flex items-center justify-between bg-black/40 border border-white/5 p-3 pr-4 rounded-2xl hover:bg-white/5 transition-colors">
-                            <div className="flex items-center gap-4">
+                          <div key={req.friendshipId} className="flex flex-col sm:flex-row items-center justify-between bg-black/40 border border-white/5 p-3 rounded-2xl hover:bg-white/5 transition-colors gap-4">
+                            <div className="flex items-center gap-4 w-full sm:w-auto">
                               {renderMiniAvatar(req.avatarUrl)}
-                              <div>
-                                <p className="font-bold text-white text-sm">{req.firstName} {req.lastName}</p>
-                                <p className="text-xs text-gray-500">wants to be your friend</p>
+                              <div className="min-w-0 overflow-hidden">
+                                <p className="font-bold text-white text-sm truncate">{req.firstName} {req.lastName}</p>
+                                <p className="text-xs text-gray-500 truncate">wants to be your friend</p>
                               </div>
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
                               <button 
                                 onClick={() => respondToRequest(req.friendshipId, 'ACCEPTED')} 
-                                className="w-8 h-8 rounded-full bg-green-500/10 text-green-500 hover:bg-green-500 hover:text-white flex items-center justify-center transition-colors shadow-lg" 
+                                className="w-10 h-10 rounded-xl bg-green-500/10 text-green-500 hover:bg-green-500 hover:text-white flex items-center justify-center transition-colors shadow-lg" 
                                 title="Accept"
                               >
-                                <Check className="w-4 h-4" />
+                                <Check className="w-5 h-5" />
                               </button>
                               <button 
                                 onClick={() => respondToRequest(req.friendshipId, 'DECLINED')} 
-                                className="w-8 h-8 rounded-full bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white flex items-center justify-center transition-colors shadow-lg" 
+                                className="w-10 h-10 rounded-xl bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white flex items-center justify-center transition-colors shadow-lg" 
                                 title="Decline"
                               >
-                                <X className="w-4 h-4" />
+                                <X className="w-5 h-5" />
                               </button>
                             </div>
                           </div>
@@ -879,16 +883,16 @@ export default function Settings() {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {friendsList.map(friend => (
                           <div key={friend.friendshipId} className="flex items-center justify-between bg-black/40 border border-white/5 p-3 pr-4 rounded-2xl group hover:border-white/10 transition-colors">
-                            <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-4 min-w-0">
                               {renderMiniAvatar(friend.avatarUrl)}
-                              <div className="min-w-0">
+                              <div className="min-w-0 overflow-hidden">
                                 <p className="font-bold text-white text-sm truncate">{friend.firstName} {friend.lastName}</p>
                                 <p className="text-[10px] text-gray-500 truncate">{friend.email}</p>
                               </div>
                             </div>
                             <button 
                               onClick={() => handleUnfriendClick(friend.friendshipId, friend.id)} 
-                              className="opacity-0 group-hover:opacity-100 p-2 text-gray-500 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all" 
+                              className="md:opacity-0 group-hover:opacity-100 p-2 text-gray-500 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all" 
                               title="Unfriend"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -915,6 +919,7 @@ export default function Settings() {
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
           >
+            <div className="absolute inset-0" onClick={() => setUnfriendConfirm({ show: false, friendshipId: null, friendId: null })}></div>
             <motion.div
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
