@@ -29,7 +29,8 @@ export default function WatchParty() {
   const { roomId } = useParams();
   const navigate = useNavigate();
   const [socket, setSocket] = useState(null);
-  
+  const socketRef = useRef(null);
+
   // SOCKET CONNECTION STATUS
   const [isSocketConnected, setIsSocketConnected] = useState(false);
   const [socketError, setSocketError] = useState("");
@@ -61,11 +62,7 @@ export default function WatchParty() {
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [myFriends, setMyFriends] = useState([]);
   const [isFetchingFriends, setIsFetchingFriends] = useState(false);
-  
-  let API_URL = 'https://movixbackend-efpd.onrender.com';
-  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-    API_URL = 'http://localhost:5000';
-  }
+  const API_URL = 'https://movixbackend-efpd.onrender.com';
 
   // Initialize invitedFriends from localStorage
   const [invitedFriends, setInvitedFriends] = useState(() => {
@@ -142,6 +139,7 @@ export default function WatchParty() {
       navigate('/auth?mode=login');
       return;
     }
+    if (socketRef.current) return;
 
     // FETCH EXISTING CHAT HISTORY FROM DATABASE 
     const fetchChatHistory = async () => {
@@ -178,6 +176,7 @@ export default function WatchParty() {
       reconnectionDelay: 1000,
     });
     
+    socketRef.current = newSocket;
     setSocket(newSocket);
 
     newSocket.on('connect', () => {
@@ -249,7 +248,10 @@ export default function WatchParty() {
     });
 
     return () => {
-      newSocket.disconnect();
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
     };
   }, [API_URL, roomId, navigate, currentUser]);
 
@@ -840,7 +842,7 @@ export default function WatchParty() {
               initial={{ scale: 0.95, opacity: 0, y: 10 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0, y: 10 }}
-              className="bg-[#121212] border border-white/5 rounded-[24px] p-6 w-full max-w-md shadow-2xl relative z-10 flex flex-col gap-4"
+              className="bg-[#121212] border border-white/5 rounded-[24px] p-6 w-full max-md shadow-2xl relative z-10 flex flex-col gap-4"
             >
               {/* Header */}
               <div className="flex justify-between items-center pb-2 border-b border-white/5">
