@@ -7,6 +7,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Send, Search, Users, Copy, Check, ArrowLeft, PlayCircle, Film, User, Shield, Mic, MicOff, Phone, PhoneOff, UserPlus, Link2, X, Loader2, Wifi, WifiOff } from 'lucide-react';
 import MovieLoader from './MovieLoader';
 
+// Global API URL to prevent React re-evaluation during renders
+const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+  ? 'http://localhost:5000' 
+  : 'https://movixbackend-efpd.onrender.com';
+
 // Component to render invisible audio streams with Volume & Speaker settings
 const AudioPlayer = ({ stream, volume = 100, speakerId }) => {
   const audioRef = useRef(null);
@@ -62,7 +67,6 @@ export default function WatchParty() {
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [myFriends, setMyFriends] = useState([]);
   const [isFetchingFriends, setIsFetchingFriends] = useState(false);
-  const API_URL = 'https://movixbackend-efpd.onrender.com';
 
   // Initialize invitedFriends from localStorage
   const [invitedFriends, setInvitedFriends] = useState(() => {
@@ -133,6 +137,19 @@ export default function WatchParty() {
     setTimeout(() => setToast({ show: false, message: "" }), 3000);
   };
 
+  // LOCK VIEWPORT TO PREVENT ZOOMING AND HORIZONTAL SCROLL ON MOBILE
+  useEffect(() => {
+    let metaViewport = document.querySelector("meta[name=viewport]");
+    if (!metaViewport) {
+      metaViewport = document.createElement("meta");
+      metaViewport.name = "viewport";
+      document.head.appendChild(metaViewport);
+    }
+    metaViewport.content = "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0";
+    document.body.style.overflowX = 'hidden';
+    return () => { document.body.style.overflowX = 'auto'; };
+  }, []);
+
   // INITIALIZE SOCKET CONNECTION & FETCH HISTORY
   useEffect(() => {
     if (!currentUser) {
@@ -171,8 +188,9 @@ export default function WatchParty() {
 
     console.log("Connecting Socket.io to:", API_URL);
     const newSocket = io(API_URL, {
-      transports: ['websocket', 'polling'], 
-      reconnectionAttempts: 10,
+      transports: ['websocket'], 
+      reconnection: true,
+      reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
     });
     
@@ -253,7 +271,22 @@ export default function WatchParty() {
         socketRef.current = null;
       }
     };
-  }, [API_URL, roomId, navigate, currentUser]);
+  }, [roomId, navigate, currentUser]);
+
+  // MOBILE WAKE-UP MECHANISM
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && socketRef.current) {
+        if (!socketRef.current.connected) {
+          console.log('Mobile Waked Up -> Force Reconnecting Socket...');
+          socketRef.current.connect();
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
 
   // Clean up Voice Chat on unmount
   useEffect(() => {
@@ -287,12 +320,12 @@ export default function WatchParty() {
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [searchTerm, API_URL]);
+  }, [searchTerm]);
 
   // HANDLE SENDING MESSAGES
   const handleSendMessage = (e) => {
     e.preventDefault();
-    if (!newMessage.trim() || !socket || !isSocketConnected) {
+    if (!newMessage.trim() || !socketRef.current || !isSocketConnected) {
       if (!isSocketConnected) showToast("You are disconnected from the server. Please wait.");
       return;
     }
@@ -309,7 +342,7 @@ export default function WatchParty() {
     };
 
     setMessages((prev) => [...prev, messageData]);
-    socket.emit('send_message', messageData);
+    socketRef.current.emit('send_message', messageData);
     setNewMessage("");
   };
 
@@ -328,7 +361,7 @@ export default function WatchParty() {
       episode: 1 
     };
     
-    if (socket && isSocketConnected) socket.emit('sync_media', mediaData);
+    if (socketRef.current && isSocketConnected) socketRef.current.emit('sync_media', mediaData);
     setCurrentMedia(mediaData);
     setSearchResults([]);
     setSearchTerm("");
@@ -385,16 +418,16 @@ export default function WatchParty() {
         setInvitedFriends(prev => [...prev, friend.id]);
         showToast(`Invited ${friend.firstName}!`);
         
-        if (socket && isSocketConnected) {
-           socket.emit('send_global_notification', { receiverId: friend.id });
+        if (socketRef.current && isSocketConnected) {
+           socketRef.current.emit('send_global_notification', { receiverId: friend.id });
         }
       } else if (res.status === 404) {
         console.warn("Backend API route not found. Using Socket fallback.");
         setInvitedFriends(prev => [...prev, friend.id]);
         showToast(`Invited ${friend.firstName}! (Live only)`);
         
-        if (socket && isSocketConnected) {
-           socket.emit('send_global_notification', { 
+        if (socketRef.current && isSocketConnected) {
+           socketRef.current.emit('send_global_notification', { 
              receiverId: friend.id,
              type: 'ROOM_INVITE',
              link: `/party/${roomId}`
@@ -432,8 +465,8 @@ export default function WatchParty() {
       setRemoteAudioStreams({});
       setIsVoiceActive(false);
       setIsMuted(false);
-      if (socket && isSocketConnected) {
-         socket.emit('leave_voice', { roomId, peerId: peerInstance.current?.id });
+      if (socketRef.current && isSocketConnected) {
+         socketRef.current.emit('leave_voice', { roomId, peerId: peerInstance.current?.id });
       }
       showToast("Left Voice Chat");
     } else {
@@ -468,7 +501,7 @@ export default function WatchParty() {
         });
 
         peer.on('open', (id) => {
-          if (socket && isSocketConnected) socket.emit('join_voice', { roomId, peerId: id });
+          if (socketRef.current && isSocketConnected) socketRef.current.emit('join_voice', { roomId, peerId: id });
         });
 
         // Answer incoming calls
@@ -501,7 +534,7 @@ export default function WatchParty() {
   };
 
   return (
-    <div className="max-w-[1600px] mx-auto p-4 sm:p-6 min-h-screen flex flex-col xl:flex-row gap-6 animate-[fadeIn_0.4s_ease-out]">
+    <div className="max-w-[1600px] mx-auto p-4 sm:p-6 min-h-screen flex flex-col xl:flex-row gap-6 animate-[fadeIn_0.4s_ease-out] overflow-x-hidden">
       
       {/* INVISIBLE AUDIO PLAYERS FOR WEBRTC */}
       {Object.entries(remoteAudioStreams).map(([peerId, stream]) => {
@@ -517,21 +550,21 @@ export default function WatchParty() {
       })}
 
       {/* LEFT PANEL: VIDEO PLAYER & CONTROLS */}
-      <div className="flex-1 flex flex-col space-y-4">
+      <div className="flex-1 flex flex-col space-y-4 w-full">
         
-        <div className="flex flex-col sm:flex-row items-center justify-between bg-gray-900/60 p-4 rounded-2xl border border-gray-800">
-          <div className="flex items-center gap-4 w-full sm:w-auto mb-4 sm:mb-0">
-            <button onClick={() => navigate('/')} className="p-2 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition-colors">
-              <ArrowLeft className="w-5 h-5" />
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-gray-900/60 p-4 rounded-2xl border border-gray-800 gap-4">
+          <div className="flex items-center gap-4 w-full sm:w-auto min-w-0">
+            <button onClick={() => navigate('/')} className="p-2.5 sm:p-2 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition-colors shrink-0">
+              <ArrowLeft className="w-6 h-6 sm:w-5 sm:h-5" />
             </button>
-            <div>
-              <h1 className="text-xl font-black text-white flex items-center">
-                <Users className="w-5 h-5 mr-2 text-indigo-500" /> 
-                {partyDetails?.roomName || "Watch Party"}
+            <div className="min-w-0 flex-1">
+              <h1 className="text-lg sm:text-xl font-black text-white flex items-center truncate">
+                <Users className="w-5 h-5 mr-2 text-indigo-500 shrink-0" /> 
+                <span className="truncate">{partyDetails?.roomName || "Watch Party"}</span>
               </h1>
               
               <div className="flex items-center gap-2 mt-1">
-                <p className="text-xs text-gray-500 font-mono tracking-widest">ID: {roomId}</p>
+                <p className="text-[11px] sm:text-xs text-gray-500 font-mono tracking-widest">ID: {roomId}</p>
                 <button 
                   onClick={copyRoomId}
                   className="p-1 rounded-md bg-gray-800/50 hover:bg-gray-700 text-gray-400 hover:text-white transition-colors"
@@ -577,8 +610,8 @@ export default function WatchParty() {
                   </div>
                   
                   <div className="relative group cursor-pointer z-50">
-                    <div className="flex items-center gap-1.5 px-2.5 py-0.5 bg-green-500/10 hover:bg-green-500/20 text-green-400 rounded-full text-[10px] font-bold border border-green-500/20 transition-colors">
-                      <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                    <div className="flex items-center gap-1.5 px-2.5 py-0.5 bg-green-500/10 hover:bg-green-500/20 text-green-400 rounded-full text-[10px] font-bold border border-green-500/20 transition-colors shrink-0">
+                      <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
                       {onlineUsers.length} Online
                     </div>
                     
@@ -618,22 +651,22 @@ export default function WatchParty() {
             </div>
           </div>
 
-          <div className="flex gap-2 w-full sm:w-auto">
-            <button onClick={copyRoomLink} className="flex-1 sm:flex-none px-4 py-2.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white rounded-xl text-sm font-bold flex items-center justify-center transition-colors">
-              {copied ? <Check className="w-4 h-4 mr-2 text-green-500" /> : <Link2 className="w-4 h-4 mr-2" />}
-              {copied ? 'Link Copied!' : 'Copy Link'}
+          <div className="flex gap-2 w-full sm:w-auto shrink-0">
+            <button onClick={copyRoomLink} className="flex-1 sm:flex-none px-4 py-3 sm:py-2.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white rounded-xl text-sm font-bold flex items-center justify-center transition-colors">
+              {copied ? <Check className="w-4 h-4 sm:mr-2 text-green-500" /> : <Link2 className="w-4 h-4 sm:mr-2" />}
+              <span className="hidden sm:inline">Copy Link</span>
             </button>
-            <button onClick={handleOpenInviteModal} className="flex-1 sm:flex-none px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-bold flex items-center justify-center transition-colors shadow-lg shadow-indigo-600/30">
-              <UserPlus className="w-4 h-4 mr-2" /> Invite Friends
+            <button onClick={handleOpenInviteModal} className="flex-1 sm:flex-none px-4 sm:px-5 py-3 sm:py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-bold flex items-center justify-center transition-colors shadow-lg shadow-indigo-600/30">
+              <UserPlus className="w-4 h-4 mr-2" /> Invite
             </button>
           </div>
         </div>
 
         <div className="w-full aspect-video bg-black rounded-2xl border border-gray-800 shadow-2xl relative overflow-hidden ring-4 ring-gray-900/50">
           {!currentMedia ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-500">
-              <Film className="w-16 h-16 mb-4 opacity-20" />
-              <p className="font-bold">Waiting for someone to pick a movie...</p>
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-500 p-4 text-center">
+              <Film className="w-12 h-12 sm:w-16 sm:h-16 mb-4 opacity-20" />
+              <p className="font-bold text-sm sm:text-base">Waiting for someone to pick a movie...</p>
             </div>
           ) : (
             <iframe 
@@ -647,20 +680,20 @@ export default function WatchParty() {
         </div>
 
         {/* ROOM CONTROLS */}
-        <div className="bg-gray-900/40 border border-gray-800 rounded-2xl p-5">
-          <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4 flex items-center">
+        <div className="bg-gray-900/40 border border-gray-800 rounded-2xl p-4 sm:p-5 w-full">
+          <h3 className="text-xs sm:text-sm font-bold text-gray-400 uppercase tracking-widest mb-4 flex items-center">
             <Film className="w-4 h-4 mr-2 text-indigo-500" /> Room Controls: Pick a Movie
           </h3>
-          <form onSubmit={handleSearchSubmit} className="flex gap-2 relative">
+          <form onSubmit={handleSearchSubmit} className="flex gap-2 relative w-full">
             <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none">
-              <Search className="w-4 h-4 text-gray-500" />
+              <Search className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500" />
             </div>
             <input 
               type="text" 
               value={searchTerm} 
               onChange={(e) => setSearchTerm(e.target.value)} 
-              placeholder="Search title to play for everyone..." 
-              className="flex-1 bg-black/60 border border-white/10 text-white rounded-xl py-3 pl-11 pr-4 focus:outline-none focus:border-indigo-500 transition-colors text-sm"
+              placeholder="Search title to play..." 
+              className="flex-1 w-full bg-black/60 border border-white/10 text-white rounded-xl py-3.5 sm:py-3 pl-12 pr-4 focus:outline-none focus:border-indigo-500 transition-colors text-[16px] sm:text-sm"
             />
           </form>
 
@@ -674,15 +707,15 @@ export default function WatchParty() {
             <div className="mt-4 space-y-2 max-h-60 overflow-y-auto custom-scrollbar pr-2">
               {searchResults.map(movie => (
                 <div key={movie.id} className="flex items-center justify-between bg-black/40 p-2 rounded-xl border border-white/5 hover:border-indigo-500/30 transition-colors">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <img src={movie.posterPath} alt="" className="w-10 h-14 object-cover rounded-lg" />
-                    <span className="text-white text-sm font-bold truncate pr-4">{movie.title}</span>
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <img src={movie.posterPath} alt="" className="w-10 h-14 object-cover rounded-lg shrink-0" />
+                    <span className="text-white text-sm font-bold truncate">{movie.title}</span>
                   </div>
                   <button 
                     onClick={() => handleSyncMedia(movie)}
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg flex items-center shrink-0 transition-colors"
+                    className="px-3 sm:px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg flex items-center shrink-0 transition-colors"
                   >
-                    <PlayCircle className="w-4 h-4 mr-2" /> Sync Play
+                    <PlayCircle className="w-4 h-4 sm:mr-2" /> <span className="hidden sm:inline">Sync Play</span>
                   </button>
                 </div>
               ))}
@@ -693,9 +726,10 @@ export default function WatchParty() {
       </div>
 
       {/* RIGHT PANEL: LIVE CHAT & VOICE */}
-      <div className="w-full xl:w-80 2xl:w-96 flex flex-col bg-gray-900/60 border border-gray-800 rounded-2xl overflow-hidden h-[600px] xl:h-auto">
-        <div className="p-4 bg-black/40 border-b border-gray-800 shrink-0 flex items-center justify-between">
-          <h2 className="text-sm font-black text-white uppercase tracking-widest flex items-center">
+      <div className="w-full xl:w-80 2xl:w-96 flex flex-col bg-gray-900/60 border border-gray-800 rounded-2xl overflow-hidden h-[500px] xl:h-auto shrink-0">
+        <div className="p-3 sm:p-4 bg-black/40 border-b border-gray-800 shrink-0 flex items-center justify-between">
+          
+          <h2 className="text-xs sm:text-sm font-black text-white uppercase tracking-widest flex items-center">
             {isSocketConnected ? (
               <Wifi className="w-4 h-4 text-green-500 mr-2" />
             ) : (
@@ -717,16 +751,16 @@ export default function WatchParty() {
             )}
             <button
               onClick={toggleVoiceChat}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 transition-colors ${
+              className={`px-3 py-2 sm:py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 transition-colors ${
                 isVoiceActive
                   ? 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_15px_rgba(220,38,38,0.4)]'
                   : 'bg-green-600 hover:bg-green-500 text-white shadow-[0_0_15px_rgba(22,163,74,0.4)]'
               }`}
             >
               {isVoiceActive ? (
-                <><PhoneOff className="w-3 h-3" /> Leave Voice</>
+                <><PhoneOff className="w-3 h-3" /> <span className="hidden sm:inline">Leave</span></>
               ) : (
-                <><Phone className="w-3 h-3" /> Join Voice</>
+                <><Phone className="w-3 h-3" /> <span className="hidden sm:inline">Join</span></>
               )}
             </button>
           </div>
@@ -753,7 +787,7 @@ export default function WatchParty() {
               <div key={msg.id || idx} className="w-full">
                 {msg.type === 'system' ? (
                   <div className="flex justify-center my-2">
-                    <span className="px-3 py-1 bg-white/5 rounded-full text-[10px] text-gray-400 font-bold uppercase tracking-wider border border-white/10">
+                    <span className="px-3 py-1 bg-white/5 rounded-full text-[10px] text-gray-400 font-bold uppercase tracking-wider border border-white/10 text-center">
                       {msg.message}
                     </span>
                   </div>
@@ -777,14 +811,14 @@ export default function WatchParty() {
                     </div>
 
                     {/* Bubble Content */}
-                    <div className={`flex flex-col max-w-[75%] ${isOwnMessage ? 'items-end' : 'items-start'}`}>
+                    <div className={`flex flex-col max-w-[80%] sm:max-w-[75%] ${isOwnMessage ? 'items-end' : 'items-start'}`}>
                       {!isOwnMessage && (
                         <span className="text-[10px] text-gray-500 font-bold mb-1 ml-1">
                           {msg.user}
                         </span>
                       )}
                       
-                      <div className={`px-4 py-2.5 rounded-2xl text-sm shadow-inner break-words w-full ${
+                      <div className={`px-4 py-2.5 rounded-2xl text-[15px] sm:text-sm shadow-inner break-words w-full ${
                         isOwnMessage 
                           ? 'bg-indigo-600 text-white rounded-br-none' 
                           : 'bg-[#2a2a2a] text-gray-200 rounded-bl-none border border-white/5'
@@ -801,21 +835,21 @@ export default function WatchParty() {
         </div>
 
         <div className="p-3 bg-black/40 border-t border-gray-800 shrink-0">
-          <form onSubmit={handleSendMessage} className="flex gap-2">
+          <form onSubmit={handleSendMessage} className="flex gap-2 w-full">
             <input 
               type="text" 
               value={newMessage} 
               onChange={(e) => setNewMessage(e.target.value)} 
               placeholder="Type a message..." 
               disabled={!isSocketConnected}
-              className="flex-1 bg-gray-900 border border-gray-700 text-white rounded-xl py-2.5 px-4 text-sm focus:outline-none focus:border-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex-1 w-full bg-gray-900 border border-gray-700 text-white rounded-xl py-3.5 sm:py-2.5 px-4 text-[16px] sm:text-sm focus:outline-none focus:border-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
             />
             <button 
               type="submit" 
               disabled={!isSocketConnected}
-              className="p-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="p-3.5 sm:p-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
             >
-              <Send className="w-4 h-4" />
+              <Send className="w-5 h-5 sm:w-4 sm:h-4" />
             </button>
           </form>
         </div>
@@ -842,15 +876,15 @@ export default function WatchParty() {
               initial={{ scale: 0.95, opacity: 0, y: 10 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0, y: 10 }}
-              className="bg-[#121212] border border-white/5 rounded-[24px] p-6 w-full max-md shadow-2xl relative z-10 flex flex-col gap-4"
+              className="bg-[#121212] border border-white/5 rounded-[24px] p-6 w-full max-w-md shadow-2xl relative z-10 flex flex-col gap-4"
             >
               {/* Header */}
-              <div className="flex justify-between items-center pb-2 border-b border-white/5">
+              <div className="flex justify-between items-center pb-4 border-b border-white/5 mb-4">
                 <h3 className="text-xl font-black text-white flex items-center gap-3">
                   <UserPlus className="w-5 h-5 text-indigo-500" /> Invite Friends
                 </h3>
                 <button onClick={() => setIsInviteModalOpen(false)} className="text-gray-400 hover:text-white bg-[#1c1c1e] hover:bg-[#2a2a2c] rounded-full p-2 transition-colors">
-                  <X className="w-4 h-4" />
+                  <X className="w-5 h-5" />
                 </button>
               </div>
               
@@ -881,30 +915,30 @@ export default function WatchParty() {
 
                       return (
                         <div key={friend.id} className="flex items-center justify-between bg-[#1c1c1e] p-3 rounded-2xl border border-transparent hover:border-white/5 transition-colors">
-                          <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-3 min-w-0">
                             {friend.avatarUrl && friend.avatarUrl !== "null" ? (
-                              <img src={friend.avatarUrl} alt="avatar" className="w-10 h-10 rounded-full object-cover border border-white/10" />
+                              <img src={friend.avatarUrl} alt="avatar" className="w-10 h-10 rounded-full object-cover shrink-0" />
                             ) : (
-                              <div className="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center border border-white/10">
+                              <div className="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center shrink-0">
                                 <User className="w-5 h-5 text-gray-400" />
                               </div>
                             )}
-                            <div>
-                              <p className="text-white text-sm font-bold">{friend.firstName} {friend.lastName}</p>
-                              <p className="text-[10px] text-gray-500">{friend.email}</p>
+                            <div className="min-w-0">
+                              <p className="text-white text-sm font-bold truncate">{friend.firstName} {friend.lastName}</p>
+                              <p className="text-[10px] text-gray-500 truncate">{friend.email}</p>
                             </div>
                           </div>
                           
                           {isOnlineInRoom ? (
-                              <button disabled className="px-5 py-2.5 text-xs font-bold rounded-xl flex items-center gap-1.5 bg-[#2a2a2c] text-gray-300 cursor-not-allowed">
-                                <Users className="w-3.5 h-3.5" /> In Room
+                              <button disabled className="px-4 py-2.5 text-xs font-bold rounded-xl flex items-center gap-1.5 bg-[#2a2a2c] text-gray-300 cursor-not-allowed shrink-0 ml-2">
+                                <Users className="w-3 h-3" /> <span className="hidden sm:inline">In Room</span>
                               </button>
                           ) : isInvited ? (
-                              <button disabled className="px-5 py-2.5 text-xs font-bold rounded-xl flex items-center gap-1.5 bg-[#162f1f] text-[#4ade80] cursor-not-allowed border border-[#4ade80]/10">
-                                <Check className="w-3.5 h-3.5" /> Sent
+                              <button disabled className="px-4 py-2.5 text-xs font-bold rounded-xl flex items-center gap-1.5 bg-[#162f1f] text-[#4ade80] cursor-not-allowed border border-[#4ade80]/10 shrink-0 ml-2">
+                                <Check className="w-3 h-3" /> <span className="hidden sm:inline">Sent</span>
                               </button>
                           ) : (
-                              <button onClick={() => sendInviteToFriend(friend)} className="px-5 py-2.5 text-xs font-bold rounded-xl flex items-center gap-1.5 bg-[#4f46e5] hover:bg-[#4338ca] text-white shadow-[0_0_15px_rgba(79,70,229,0.4)] transition-all">
+                              <button onClick={() => sendInviteToFriend(friend)} className="px-4 py-2.5 text-xs font-bold rounded-xl flex items-center gap-1.5 bg-[#4f46e5] hover:bg-[#4338ca] text-white shadow-[0_0_15px_rgba(79,70,229,0.4)] transition-all shrink-0 ml-2">
                                 Invite
                               </button>
                           )}

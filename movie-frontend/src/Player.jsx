@@ -79,7 +79,10 @@ export default function Player() {
   const [bookmarkAnimState, setBookmarkAnimState] = useState("idle");
   const [toast, setToast] = useState({ show: false, message: "" });
 
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+  let API_URL = 'https://movixbackend-efpd.onrender.com';
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    API_URL = 'http://localhost:5000';
+  }
   
   // Extract primitive user ID to avoid dependency array infinite loops
   const storedUser = localStorage.getItem('currentUser');
@@ -1006,56 +1009,95 @@ export default function Player() {
         )}
       </AnimatePresence>
 
+      {/* CUSTOM MODAL ACTOR INFO - MOBILE OPTIMIZED */}
       <AnimatePresence>
         {selectedPerson && (
           <motion.div 
             initial={{ opacity: 0 }} 
             animate={{ opacity: 1 }} 
             exit={{ opacity: 0 }} 
-            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center sm:p-4"
           >
-            <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={closePersonModal}></div>
+            {/* Backdrop */}
+            <div className="absolute inset-0 bg-black/90 backdrop-blur-sm" onClick={closePersonModal}></div>
+            
             <motion.div 
-              initial={{ scale: 0.9, opacity: 0 }} 
-              animate={{ scale: 1, opacity: 1 }} 
-              className="relative w-full max-w-4xl max-h-[90vh] bg-gray-900 border border-gray-700 rounded-2xl overflow-hidden flex flex-col"
+              initial={{ y: "100%" }} 
+              animate={{ y: 0 }} 
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className="relative w-full sm:max-w-4xl h-[85vh] sm:h-auto sm:max-h-[90vh] bg-[#121212] sm:border border-gray-800 rounded-t-[2rem] sm:rounded-2xl flex flex-col shadow-[0_-10px_40px_rgba(0,0,0,0.5)] sm:shadow-2xl"
             >
-              <div className="flex justify-between items-center p-5 border-b border-gray-800">
-                <h2 className="text-xl font-bold text-white flex items-center"><User className="w-5 h-5 mr-2 text-red-500" /> Biography</h2>
-                <button onClick={closePersonModal} className="text-gray-400 hover:text-white bg-gray-800 hover:bg-red-600 rounded-full p-1.5 transition-colors"><X className="w-6 h-6" /></button>
+              {/* Swipe indicator (Mobile) */}
+              <div className="w-full flex justify-center pt-4 pb-2 sm:hidden cursor-pointer" onClick={closePersonModal}>
+                <div className="w-12 h-1.5 bg-gray-700 rounded-full"></div>
               </div>
-              <div className="overflow-y-auto p-6 custom-scrollbar">
-                {isPersonLoading ? <MovieLoader size="lg" /> : personDetails && (
-                  <div className="space-y-8">
-                    <div className="flex flex-col sm:flex-row gap-6">
-                      <img src={personDetails.profilePath || ""} alt="" className="w-40 h-56 object-cover rounded-xl border border-gray-700 shadow-lg" />
+
+              {/* Header Modal */}
+              <div className="flex justify-between items-center p-5 border-b border-white/5 shrink-0">
+                <h2 className="text-xl font-black text-white flex items-center">
+                  <User className="w-5 h-5 mr-2 text-red-500" /> Biography
+                </h2>
+                <button 
+                  onClick={closePersonModal} 
+                  className="text-gray-400 hover:text-white bg-gray-800 hover:bg-red-600 rounded-full p-2 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              {/* Scrollable Content */}
+              <div className="flex-1 overflow-y-auto p-5 sm:p-8 custom-scrollbar">
+                {isPersonLoading ? (
+                  <div className="h-full flex items-center justify-center min-h-[200px]">
+                    <MovieLoader size="lg" />
+                  </div>
+                ) : personDetails && (
+                  <div className="space-y-8 pb-10 sm:pb-0">
+                    
+                    <div className="flex flex-col sm:flex-row gap-6 items-center sm:items-start text-center sm:text-left">
+                      <img 
+                        src={personDetails.profilePath || ""} 
+                        alt="" 
+                        className="w-32 h-48 sm:w-48 sm:h-72 object-cover rounded-2xl shadow-[0_10px_30px_rgba(0,0,0,0.5)] border border-gray-800 shrink-0" 
+                        onError={(e) => { e.target.src = "https://via.placeholder.com/300x450?text=No+Image"; }}
+                      />
                       <div className="space-y-4">
-                        <h2 className="text-3xl font-black text-white">{personDetails.name}</h2>
-                        <p className="text-gray-300 text-sm leading-relaxed text-justify">{personDetails.biography}</p>
+                        <h2 className="text-3xl font-black text-white leading-tight">{personDetails.name}</h2>
+                        <p className="text-gray-300 text-sm leading-relaxed sm:text-justify max-w-full">
+                          {personDetails.biography || "No biography available for this person."}
+                        </p>
                       </div>
                     </div>
 
                     {/* KNOWN FOR MOVIES */}
                     {personDetails.movies && personDetails.movies.length > 0 && (
-                      <div className="space-y-4 pt-6 border-t border-gray-800">
+                      <div className="space-y-4 pt-6 border-t border-white/5">
                         <h3 className="text-lg font-bold text-white flex items-center">
                           <Clapperboard className="w-5 h-5 mr-2 text-red-500" /> Known For
                         </h3>
-                        <div className="flex overflow-x-auto gap-4 pb-2 custom-scrollbar">
+                        <div className="flex overflow-x-auto gap-4 pb-4 custom-scrollbar snap-x">
                           {personDetails.movies.map(m => (
                             <Link 
                               key={m.id}
                               to={`/watch/${m.id}?type=${m.mediaType}`} 
                               onClick={closePersonModal}
-                              className="w-28 shrink-0 group flex flex-col"
+                              className="w-28 sm:w-32 shrink-0 group flex flex-col snap-start"
                             >
-                              <img 
-                                src={m.posterPath} 
-                                alt={m.title} 
-                                className="w-full h-40 object-cover rounded-lg shadow-md group-hover:border-red-500 border-2 border-transparent transition-colors" 
-                              />
-                              <p className="text-white text-xs font-bold mt-2 truncate group-hover:text-red-400 transition-colors">{m.title}</p>
-                              <p className="text-gray-500 text-[10px] truncate" title={m.character}>{m.character}</p>
+                              <div className="w-full aspect-[2/3] rounded-xl overflow-hidden shadow-lg border-2 border-transparent group-hover:border-red-500 transition-colors bg-gray-900">
+                                <img 
+                                  src={m.posterPath} 
+                                  alt={m.title} 
+                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" 
+                                  loading="lazy"
+                                />
+                              </div>
+                              <p className="text-white text-xs font-bold mt-2 truncate group-hover:text-red-400 transition-colors" title={m.title}>
+                                {m.title}
+                              </p>
+                              <p className="text-gray-500 text-[10px] truncate" title={m.character}>
+                                {m.character}
+                              </p>
                             </Link>
                           ))}
                         </div>
