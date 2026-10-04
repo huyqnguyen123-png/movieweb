@@ -1,4 +1,4 @@
-# 🎬 Movix - Movie Streaming & Watch Party App
+# 🎬 Movix - Movie Streaming & Watch Party Website
 
 ![Project Banner](<img width="1902" height="943" alt="Screenshot 2026-10-04 095949" src="https://github.com/user-attachments/assets/1a7fe38c-4813-43c7-a364-16397dce8205" />
 )
